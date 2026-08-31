@@ -1,0 +1,28 @@
+# Built and intermediate files. They have no place in the history: one command
+# rebuilds them, and in a repository they only swell and drift away from the
+# sources.
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+
+# The binary core is placed INTO THE PACKAGE before the wheel is built - that
+# is a build step, not a source. Let build_wheel.py make it rather than the
+# repository keep it.
+python/nashira3d/*.dll
+python/nashira3d/*.so
+python/nashira3d/*.dylib
+
+# The parser is taken at a tag rather than copied in: see README.
+thirdparty/
+
+# Probe pictures are evidence from a run, not sources.
+tests/*.png
+tests/*.npy
+
+# The logo kits are masters, not source code. Each one is about ten megabytes:
+# raster exports up to 8192 pixels, and SVG. They have no place among two
+# hundred kilobytes of sources, and what the product needs sits next to the
+# page: web/logo.png and web/favicon.png. Those are tracked.
+logo/

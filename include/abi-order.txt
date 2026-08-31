@@ -1,0 +1,43 @@
+# THE ORDER OF THE MEMBERS OF nsh_api_v1. Part of the contract, not
+# documentation.
+#
+# A new name is only APPENDED AT THE END. An insertion in the middle, or a
+# reordering, shifts everything below it, and a build made elsewhere starts
+# calling the neighbouring function - silently, without a single build error
+# and without a single complaint at run time.
+#
+# Why this file exists: on 2026-08-29 fit_z was inserted between set_fill and
+# set_light. The header, the Pascal record, and the cdef were all edited at
+# once and in agreement, so no probe saw it - all three said the same wrong
+# thing. An outside record of the order was needed for exactly that.
+#
+# A probe checks include/nashira3d.h against this file, and requires the
+# previous version of this file to be the BEGINNING of the current one.
+
+size
+create
+destroy
+set_formula
+set_domain
+set_quality
+set_camera
+set_pan
+set_box
+set_fit
+set_grid
+set_fill
+set_light
+set_axes
+render
+last_error
+version
+fit_z
+set_obstacles
+set_camera_at
+set_max_extent
+set_z_exaggeration
+view_region
+set_auto_z
+auto_z_fired
+set_shading
+set_region_mode

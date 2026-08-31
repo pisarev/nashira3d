@@ -1,0 +1,2555 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nashira3D</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+  :root{
+    /* The drop-down part of a select is drawn by the system, not by the page:
+       these colours never reach it, and white letters landed on light grey.
+       color-scheme tells the browser to draw ITS OWN elements dark - the only
+       reliable way, as styling option does not work everywhere. */
+    color-scheme:dark;
+    --bg:#070a0f; --ink:#dbe4f0; --dim:#8d9aab; --faint:#5d6a7b;
+    --acc:#4fd1b3; --acc-dim:#2f8d78; --bad:#f08a8a;
+    --glass:rgba(14,19,27,.72); --edge:rgba(255,255,255,.09);
+    --edge-soft:rgba(255,255,255,.05);
+    --shadow:0 8px 32px rgba(0,0,0,.55), 0 1px 0 rgba(255,255,255,.04) inset;
+    --r:10px;
+    /* One height for every control. A field, an "even" button, a sample chip
+       and half of a switch each used to have a height of its own, and a row of
+       them looked like a staircase. */
+    --ctl:30px;
+    /* The geometry of the layout: the margin from the window edge, the widths
+       of the left and right columns, the clearance between panels and the
+       height reserved for the neighbour below. The reserves come from a
+       measurement: pTop 236 pixels, pInfo 178, plus the clearance. */
+    --gap:16px;
+    --wL:340px;
+    --wR:236px;
+    --clear:12px;
+    --resTop:260px;
+    --resInfo:200px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font:13px/1.5 "Inter","Segoe UI",system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased}
+
+  /* touch-action and user-select are required: without them the browser takes
+     the gesture for itself (scrolling, selection, precision-touchpad
+     gestures), and pointermove simply never reaches us. The movement logic
+     looks sound all the while and says nothing. */
+  #view{position:fixed;inset:0;touch-action:none;user-select:none;-webkit-user-select:none}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #over{pointer-events:none}
+  #core{display:block}
+  #view.orbit{cursor:grab} #view.orbit.busy{cursor:grabbing}
+  #view.pan{cursor:move}
+
+  .panel{position:fixed;background:var(--glass);border:1px solid var(--edge);
+    border-radius:var(--r);box-shadow:var(--shadow);padding:13px 14px;
+    backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);
+    transition:opacity .18s ease, transform .18s ease}
+  body.dragging .panel{opacity:.35}
+  .panel:hover{opacity:1}
+  /* The layout of the panels is derived from the four values declared in
+     :root and is nowhere repeated as numbers. Otherwise a change to a panel's
+     width quietly drifts away from the ceilings that are computed from that
+     width. */
+  #pTop{top:var(--gap);left:var(--gap);width:var(--wL)}
+  #pInfo{bottom:var(--gap);right:var(--gap);width:var(--wR)}
+  /* The upper panels GROW with their text, and the space below them is taken
+     by the lower ones. An overlap is caught not by eye but by measurement: at
+     1912 by 940 the right-hand pair ran into each other by six pixels as soon
+     as the mode labels grew longer. A height ceiling with scrolling covers
+     that at ANY window size, not only the current one - and clears up an old
+     trouble with narrow windows at the same time. The reserve is taken from
+     the neighbour below: under pView stands pInfo, under pTop stands pDom. */
+  #pView{top:var(--gap);right:var(--gap);width:var(--wR);
+    max-height:calc(100vh - 2*var(--gap) - var(--resInfo));overflow-y:auto}
+  #pDom{bottom:var(--gap);left:var(--gap);width:var(--wL);
+    max-height:calc(100vh - 2*var(--gap) - var(--resTop));overflow-y:auto}
+  /* The bottom panel occupies the GAP between the side panels and centres
+     itself in it. The panels differ in width - 340 on the left, 236 on the
+     right - and the centre of the window is offset from the centre of the gap.
+     While it was centred on the window, its width was limited by the narrow
+     side: at 1101 the panel got 365 pixels instead of the 469 available, and
+     the groups broke into three rows instead of two.
+
+     The middle comes from a pair of left and right plus margin auto, and NOT
+     from a transform of minus half. A percentage in transform is resolved
+     against the width of the element itself, and the width here comes from a
+     max-width of 100vw, that is, later than the first layout. Measured: the
+     transform stayed the identity matrix, the panel stood at x=692 at a width
+     of 588 and covered the readout entirely; it came back only with a forced
+     repaint. A percentage simply has no place here. */
+  #pMode{bottom:var(--gap);
+    left:calc(var(--gap) + var(--wL) + var(--clear));
+    right:calc(var(--gap) + var(--wR) + var(--clear));
+    /* fit-content, and NOT max-content with a ceiling of a hundred per cent:
+       on an element with position fixed a hundred per cent is resolved against
+       the WINDOW rather than against the span between left and right, and the
+       panel spread to 863 pixels where 648 were available. fit-content clamps
+       itself to that span. */
+    width:fit-content;margin:0 auto;
+    padding:8px 10px;box-sizing:border-box}
+
+  /* The mark goes out as ONE picture rather than as text on a backing: it has
+     a slab of its own with rounded corners, and reproducing that with the
+     page's own means would keep two descriptions of one and the same
+     appearance. The mark is square, so stretching the row across the whole
+     width of the panel became pointless: the wordmark stands IMMEDIATELY to
+     its right rather than flying off to the far edge. Its width is fixed
+     rather than a percentage: on a narrow window the panel stretches, and the
+     mark used to swell with it. */
+  .brand{display:flex;align-items:center;gap:13px;margin-bottom:14px}
+  .brand img{display:block;width:44px;height:44px;flex:none}
+  .brand .sub{font-size:10px;color:var(--dim);letter-spacing:.14em;
+    text-transform:uppercase;line-height:1.4}
+  .brand .sub b{display:block;color:var(--ink);font-size:12.5px;font-weight:650;
+    letter-spacing:.06em;margin-bottom:2px;text-transform:none}
+
+  label,.lbl{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--faint);margin:0 0 6px}
+  .panel>*+label,.panel>*+.lbl{margin-top:13px}
+
+  input[type=text],input[type=number],select{width:100%;height:var(--ctl);
+    background:rgba(0,0,0,.34);
+    color:var(--ink);border:1px solid var(--edge);border-radius:7px;padding:0 9px;
+    font:inherit;font-size:12.5px;transition:border-color .15s,box-shadow .15s}
+  input[type=text]{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:12px}
+  input:focus,select:focus{outline:none;border-color:var(--acc-dim);
+    box-shadow:0 0 0 3px rgba(79,209,179,.13)}
+  select option{background:#0f151d;color:#dbe4f0;padding:6px}
+  select option:checked{background:#17624f;color:#eaf7f3}
+  select{appearance:none;cursor:pointer;
+    background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),
+                     linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+    background-position:calc(100% - 15px) 14px,calc(100% - 10px) 14px;
+    background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+
+  input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:3px;
+    border-radius:2px;background:rgba(255,255,255,.13);outline:none;margin:9px 0 3px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;
+    border-radius:50%;background:var(--acc);cursor:pointer;
+    box-shadow:0 0 0 4px rgba(79,209,179,.16)}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;
+    background:var(--acc);cursor:pointer}
+
+  /* The height is set on the INNER button, not on the frame. --ctl used to sit
+     on the frame, leaving the button itself 24 pixels against 30 for the rest
+     - visible to the eye, although the styles held a single number.
+
+     A grid, not a flex row. In a flex row with a basis of zero the width is
+     divided equally regardless of the content, and the longest label did not
+     fit: measured, "across the view" needed 98 pixels and got 90. Setting the
+     basis from the content removes the clipping but makes the buttons
+     different widths, and in a segmented switch they have to be equal. A grid
+     column of 1fr gives both at once: every column is equal, and none is
+     narrower than its own content. */
+  .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
+    background:rgba(0,0,0,.34);
+    border:1px solid var(--edge);border-radius:7px;padding:2px;gap:2px}
+  /* The label sits on one line and centred. There came to be three buttons,
+     each a third as wide, and a two-word label wrapped to a second line -
+     which was then cut off by the height common to every control. Neither the
+     height may change (it is single) nor the text be cut: a label clipped top
+     and bottom does not read. */
+  .seg button{height:var(--ctl);background:none;border:none;color:var(--dim);padding:0 6px;
+    display:flex;align-items:center;justify-content:center;
+    white-space:nowrap;overflow:hidden;
+    font:inherit;font-size:11.5px;border-radius:5px;cursor:pointer;
+    transition:background .15s,color .15s}
+  .seg button:hover{color:var(--ink)}
+  .seg button.on{background:linear-gradient(180deg,var(--acc),var(--acc-dim));
+    color:#05201a;font-weight:600}
+
+  /* The samples stand in a GRID rather than flowing along a line. Floating
+     pills of differing widths lined up however they liked: the right edge was
+     ragged and random gaps were left between the rows. Five by two is exactly
+     ten samples. */
+  .chip{display:flex;align-items:center;justify-content:center;height:var(--ctl);
+    background:rgba(255,255,255,.05);border:1px solid var(--edge-soft);border-radius:7px;
+    padding:0 4px;font-size:10.5px;color:var(--dim);cursor:pointer;
+    white-space:nowrap;overflow:hidden;transition:all .15s}
+  .chip:hover{border-color:var(--acc-dim);color:var(--ink);background:rgba(79,209,179,.1)}
+  /* The chosen sample. A solid fill, not a tint: hover already paints the
+     background a faint shade, and painting the chosen one the same way would
+     merge the two states. */
+  #flash{position:fixed;left:50%;top:18px;transform:translateX(-50%);
+    padding:7px 14px;border-radius:8px;background:rgba(79,209,179,.16);
+    border:1px solid var(--acc-dim);color:var(--ink);font-size:12px;
+    opacity:0;pointer-events:none;transition:opacity .18s;z-index:40}
+  #flash.on{opacity:1}
+  /* The pivot marker. Tiny and unfilled: it has to answer the question "what
+     am I turning around right now" rather than compete with the plot for
+     attention. */
+  #pivotdot{position:fixed;width:13px;height:13px;margin:-7px 0 0 -7px;
+    border:1.5px solid var(--acc);border-radius:50%;background:transparent;
+    opacity:0;pointer-events:none;transition:opacity .12s;z-index:35}
+  #pivotdot::after{content:"";position:absolute;left:50%;top:50%;width:3px;
+    height:3px;margin:-1.5px 0 0 -1.5px;border-radius:50%;background:var(--acc)}
+  #pivotdot.on{opacity:.85}
+  .chip.on{background:var(--acc);border-color:var(--acc);color:#06231d;font-weight:600}
+  .chip.on:hover{background:var(--acc);border-color:var(--acc);color:#06231d}
+
+  .ck{display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--dim);font-size:11.5px;
+    cursor:pointer;user-select:none}
+  .ck input{accent-color:var(--acc);width:14px;height:14px;cursor:pointer}
+
+  /* Names and values are set apart along an imaginary vertical in the middle:
+     the names pressed to it from the right, the values from the left. That way
+     the eye catches pairs instead of running edge to edge along a broken
+     line. */
+  table{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed}
+  td{padding:2.5px 0;width:50%}
+  td:first-child{color:var(--faint);text-align:right;padding-right:9px}
+  td:last-child{text-align:left;padding-left:9px;
+    font-family:ui-monospace,Consolas,monospace;
+    font-variant-numeric:tabular-nums;color:var(--ink)}
+
+  #err{color:var(--bad);font-size:11.5px;min-height:16px;margin-top:7px;
+    font-family:ui-monospace,Consolas,monospace;overflow-wrap:break-word;
+    text-align:justify}
+  /* Justified text. In a column a little over two hundred pixels wide it opens
+     holes between words unless it may hyphenate, so hyphens:auto is required -
+     and that works only when the document declares a language, hence lang="en"
+     above. Long names such as nsh_surface will not hyphenate, and for them
+     there is overflow-wrap, or the line runs out of the panel.
+
+     A hint under a field: shorter and tighter than .note, because it explains
+     one field rather than a state. */
+  .tip{font-size:10px;color:var(--faint);line-height:1.45;margin-top:5px;
+    text-align:justify;hyphens:auto;-webkit-hyphens:auto}
+  .note{font-size:11px;color:var(--faint);line-height:1.5;margin-top:9px;
+    text-align:justify;hyphens:auto;-webkit-hyphens:auto;overflow-wrap:break-word}
+  .note.bad{color:var(--bad)}
+  .note b{color:var(--dim);font-weight:600}
+  /* The bottom panel: three groups on ONE row. They used to stand one under
+     another, each 300 pixels wide in a panel of 863 - the panel took 231
+     pixels of height and kept three quarters of its width empty. The groups
+     are separated by a hairline rather than by emptiness: emptiness between
+     them would read as the edge of the panel. The width of the buttons comes
+     from their content, so a group shrinks to its own size and takes no extra
+     room. */
+  .modebar{display:flex;flex-wrap:wrap;align-items:flex-end;
+    justify-content:center;gap:8px 0}
+  /* A group does NOT shrink. Shrunk, it cut the longest label: measured,
+     "across the view" needs 98 pixels and got 90, and the tail went under the
+     edge. If it does not fit, it wraps to the next row whole, and the text
+     stays readable. A clipped label is worse than an extra row. */
+  .modebar .grp{display:flex;flex-direction:column;gap:5px;padding:0 9px;
+    flex:0 0 auto}
+  .modebar .grp+.grp{border-left:1px solid var(--edge)}
+  .modebar .lbl{margin:0;text-align:center}
+  .hint{font-size:10.5px;color:var(--faint);text-align:center;margin-top:7px;letter-spacing:.02em}
+  kbd{background:rgba(255,255,255,.07);border:1px solid var(--edge);border-radius:4px;
+    padding:1px 5px;font:inherit;font-size:10px;color:var(--dim)}
+  .btn{width:100%;height:var(--ctl);margin-top:10px;background:rgba(255,255,255,.05);
+    border:1px solid var(--edge);color:var(--dim);border-radius:7px;padding:0 6px;
+    font:inherit;font-size:11.5px;cursor:pointer;transition:all .15s}
+  .btn:hover{border-color:var(--acc-dim);color:var(--ink)}
+  #modetip{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+    padding:7px 16px;border-radius:20px;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;background:rgba(10,15,22,.82);color:var(--dim);
+    border:1px solid var(--edge);opacity:0;pointer-events:none;z-index:25;
+    transition:opacity .12s ease}
+  #modetip.on{opacity:1}
+  #modetip.pan{color:var(--acc);border-color:var(--acc-dim)}
+
+  /* THE GALLERY OF SAMPLES. Twenty buttons with names are a list, not a
+     choice: a name does not answer the question "what is this", and a picture
+     answers at once.
+
+     The thumbnails are grey and drawn in lines, like sheets of a technical
+     drawing. Coloured ones quarrelled with each other: eighteen coloured cells
+     side by side read as stained glass, while eighteen grey ones add up to one
+     sheet and the eye compares SHAPES. Hence the rest of the finish: a thin
+     border, a monospaced formula, a muted background. Colour is left to
+     exactly one cell - the chosen one. */
+  #gallery{position:fixed;inset:0;z-index:60;display:none;
+    align-items:center;justify-content:center;padding:24px;
+    background:rgba(4,7,12,.78);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  #gallery.on{display:flex}
+  #gallery .card{position:relative;width:min(1120px,100%);
+    max-height:min(88vh,880px);overflow-y:auto;
+    background:linear-gradient(180deg,#0b1420 0%,#080d15 60%,#070a11 100%);
+    border:1px solid var(--edge);border-radius:16px;
+    box-shadow:0 30px 90px rgba(0,0,0,.72),0 1px 0 rgba(255,255,255,.06) inset;
+    padding:26px 28px 24px;animation:aboutIn .22s ease both}
+  #gallery .head{display:flex;align-items:flex-start;gap:16px;margin-bottom:22px}
+  #gallery .head b{display:block;font-size:14.5px;color:var(--ink);
+    margin-bottom:5px;font-weight:600}
+  #gallery .head span{display:block;font-size:12px;line-height:1.65;
+    color:var(--dim);max-width:64ch}
+  #gallery .x{position:static;flex:none;margin-left:auto}
+
+  /* The family heading and the hairline are one grid row. The line runs to the
+     right edge and ties the row together: without it the heading hangs over
+     emptiness. */
+  #gallery .fam{grid-column:1/-1;display:flex;align-items:center;gap:12px;
+    font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--faint);font-weight:600;margin:20px 0 2px}
+  #gallery .fam.first{margin-top:0}
+  #gallery .fam::after{content:"";flex:1;height:1px;background:var(--edge-soft)}
+  #gallery .grid{display:grid;gap:16px 16px;
+    grid-template-columns:repeat(auto-fill,minmax(176px,1fr))}
+
+  #gallery .pick{display:block;padding:0;text-align:left;cursor:pointer;
+    background:rgba(0,0,0,.22);border:1px solid var(--edge);border-radius:10px;
+    overflow:hidden;font:inherit;color:inherit;
+    transition:border-color .15s,background .15s,transform .15s}
+  #gallery .pick:hover,#gallery .pick:focus-visible{border-color:var(--acc-dim);
+    background:rgba(79,209,179,.05);transform:translateY(-2px);outline:none}
+  #gallery .pick.on{border-color:var(--acc);background:rgba(79,209,179,.07)}
+  /* A cell of the sheet is cut out by the background. The size and position
+     are set by the script: the grid is given by SAMPLE_COLS next to the list,
+     and repeating it here would create a second number that would sooner or
+     later drift away from the first. */
+  #gallery .shot{display:block;width:100%;aspect-ratio:176/120;
+    background-image:url("/samples.png");background-repeat:no-repeat;
+    opacity:.82;transition:opacity .15s,filter .15s;
+    filter:contrast(1.05)}
+  #gallery .pick:hover .shot,#gallery .pick:focus-visible .shot{opacity:1}
+  /* The chosen cell is the only coloured one in the whole sheet. The teal is
+     laid over the grey by multiplication, so the lines stay lines rather than
+     being flooded. */
+  #gallery .pick.on .shot{opacity:1;
+    background-color:var(--acc);background-blend-mode:multiply}
+  #gallery .pick .cap{display:block;padding:9px 11px 10px;
+    border-top:1px solid var(--edge-soft)}
+  #gallery .pick .nm{display:flex;align-items:baseline;gap:7px;
+    font-size:12px;color:var(--ink);margin-bottom:4px}
+  #gallery .pick.on .nm{color:var(--acc)}
+  /* The domain to the right of the name, in small type: two samples may differ
+     only by it, and without it the choice looks arbitrary. */
+  #gallery .pick .dm{margin-left:auto;font-size:9px;letter-spacing:.06em;
+    color:var(--faint);font-family:ui-monospace,Consolas,monospace}
+  #gallery .pick .fx{display:block;font-size:9.5px;line-height:1.45;
+    color:var(--faint);font-family:ui-monospace,Consolas,monospace;
+    overflow-wrap:anywhere}
+  #gallery .pick:hover .fx,#gallery .pick.on .fx{color:var(--dim)}
+
+  /* THE ABOUT PANEL. It keeps a palette of its own - the brand palette from
+     the logo kit, not the working teal of the page. This is the one place
+     where the mark itself is shown, and the colour here speaks of the name
+     rather than of the controls. */
+  #about{--star:#fff4c1;--cy:#69e7ff;--blue:#4699ff;
+    position:fixed;inset:0;z-index:60;display:none;
+    align-items:center;justify-content:center;padding:24px;
+    background:rgba(4,7,12,.74);
+    backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}
+  #about.on{display:flex}
+  #about .card{position:relative;width:min(560px,100%);
+    max-height:min(86vh,780px);overflow-y:auto;
+    background:linear-gradient(180deg,#0b1420 0%,#080d15 42%,#070a11 100%);
+    border:1px solid var(--edge);border-radius:16px;
+    box-shadow:0 30px 90px rgba(0,0,0,.72),0 1px 0 rgba(255,255,255,.06) inset;
+    padding-bottom:24px;animation:aboutIn .22s ease both}
+  @keyframes aboutIn{from{opacity:0;transform:translateY(10px)}}
+  /* The width of the card and its margins are chosen for the MEASURE OF THE
+     LINE, not for the screen: at 660 pixels about ninety characters fell on a
+     line, and such a line is hard to read - the eye loses the start of the
+     next one. Here it is about seventy. */
+  #about .top{position:relative;padding:38px 44px 24px;text-align:center}
+  /* The sky and the glow lie UNDER the mark and do not intercept the pointer. */
+  #about .sky{position:absolute;inset:0;width:100%;height:100%;
+    pointer-events:none}
+  #about .top::before{content:"";position:absolute;left:50%;top:-30px;
+    width:460px;height:280px;transform:translateX(-50%);pointer-events:none;
+    background:radial-gradient(52% 58% at 50% 42%,
+      rgba(105,231,255,.15),rgba(70,153,255,.06) 46%,transparent 72%)}
+  #about .top img{position:relative;display:block;width:260px;height:78px;
+    margin:0 auto;filter:drop-shadow(0 6px 22px rgba(0,0,0,.55))}
+  #about .rule{height:1px;margin:0 44px;background:linear-gradient(90deg,
+    transparent,var(--edge) 16%,var(--edge) 84%,transparent)}
+  #about .body{padding:4px 52px 0}
+  #about h4{font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--faint);margin:24px 0 9px;font-weight:600}
+  #about p{margin:0 0 12px;font-size:13px;line-height:1.75;color:var(--dim);
+    text-align:justify;hyphens:auto;-webkit-hyphens:auto;overflow-wrap:break-word}
+  #about p.lead{margin-top:18px;font-size:14px;line-height:1.72;
+    color:var(--ink);text-align:left}
+  #about em{font-style:normal;color:var(--cy)}
+  #about code{font-family:ui-monospace,Consolas,monospace;font-size:12px;
+    color:var(--ink)}
+  /* The note about immaturity is set off on the left in starlight: it is
+     neither an error nor a prohibition, and red here would read as alarm. */
+  #about .flag{margin:22px 0 0;padding:2px 0 2px 15px;
+    border-left:2px solid var(--star)}
+  #about .flag h4{margin-top:0;color:var(--star);opacity:.72}
+  #about .foot{margin:26px 52px 0;padding-top:15px;
+    border-top:1px solid var(--edge-soft);
+    display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;
+    font-size:10.5px;letter-spacing:.06em;color:var(--faint)}
+  #about .foot a{color:var(--dim);text-decoration:none;
+    border-bottom:1px solid var(--edge)}
+  #about .foot a:hover{color:var(--cy);border-bottom-color:var(--cy)}
+  #about .foot .sp{margin-left:auto}
+  #about .x{position:absolute;top:14px;right:14px;width:28px;height:28px;
+    display:flex;align-items:center;justify-content:center;
+    background:none;border:1px solid transparent;border-radius:8px;
+    color:var(--faint);font:inherit;font-size:16px;line-height:1;
+    cursor:pointer;transition:color .15s,border-color .15s}
+  #about .x:hover{color:var(--ink);border-color:var(--edge)}
+  #about .lead-star{animation:breathe 4.2s ease-in-out infinite}
+  @keyframes breathe{0%,100%{opacity:.95}50%{opacity:.45}}
+  @media (prefers-reduced-motion:reduce){
+    #about .card{animation:none}
+    #about .lead-star{animation:none}
+  }
+  /* The button in the brand block: ghostly, so as not to quarrel with the
+     formula field, but with a border - without one it does not read as
+     pressable. */
+  #aboutBtn{margin-left:auto;flex:none;height:22px;padding:0 10px;
+    background:none;border:1px solid var(--edge);border-radius:6px;
+    color:var(--faint);font:inherit;font-size:10px;letter-spacing:.13em;
+    text-transform:uppercase;cursor:pointer;
+    transition:color .15s,border-color .15s}
+  #aboutBtn:hover{color:var(--ink);border-color:var(--acc-dim)}
+
+  #firstrun{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+    background:rgba(10,15,22,.9);border:1px solid var(--edge);border-radius:12px;
+    padding:18px 22px;max-width:390px;text-align:center;box-shadow:var(--shadow);
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    pointer-events:none;transition:opacity .7s ease;z-index:20}
+  #firstrun img{display:block;width:236px;height:71px;margin:0 auto 15px;border-radius:9px}
+  #firstrun b{display:block;font-size:14.5px;margin-bottom:7px;color:var(--acc)}
+  #firstrun span{font-size:12px;color:var(--dim);line-height:1.65;display:block;
+    text-align:justify;hyphens:auto;-webkit-hyphens:auto;overflow-wrap:break-word}
+  #firstrun.gone{opacity:0}
+
+  @media (max-width:1100px){
+    .panel{width:auto!important;left:12px!important;right:12px!important;transform:none!important}
+    #pView,#pInfo,#pDom{display:none}
+    #pMode{bottom:12px;left:12px;right:12px}
+  }
+</style>
+
+<div id="view" class="orbit">
+  <canvas id="core"></canvas>
+</div>
+
+<div class="panel" id="pTop">
+  <div class="brand">
+    <img src="/logo-mark.png" width="256" height="256" alt="">
+    <div class="sub"><b>Nashira3D</b>surface preview</div>
+    <button id="aboutBtn" type="button">About</button>
+  </div>
+  <label for="f">z = f(x, y)</label>
+  <input type="text" id="f" spellcheck="false" value="sin(3*x)*cos(3*y)*exp(-(x*x+y*y))">
+  <div id="err"></div>
+  <button class="btn" id="pickBtn" type="button">Browse the gallery</button>
+  <div class="tip" id="picknow"></div>
+</div>
+
+<div class="panel" id="pView">
+  <div class="note" id="enote">checking the core&hellip;</div>
+
+  <label>where the plot is drawn</label>
+  <div class="note" id="nnote"></div>
+
+  <label>relief is shown by</label>
+  <div class="seg">
+    <button id="sLines" class="on">contours</button><button id="sColor">colour</button><button id="sBoth">both</button>
+  </div>
+  <div class="note" id="snote"></div>
+
+  <label for="res">frame resolution</label>
+  <select id="res">
+    <option value="0.6">Draft &mdash; 0.6&times; window</option>
+    <option value="1">Standard &mdash; 1 px per pixel</option>
+    <option value="dpr" selected>High &mdash; screen pixels</option>
+    <option value="2dpr">Maximum &mdash; 2&times;, downsampled</option>
+  </select>
+  <div class="note" id="resnote"></div>
+
+  <label class="ck" for="ax"><input type="checkbox" id="ax" checked><span>draw the bounding box</span></label>
+  <label for="motion">while moving</label>
+  <select id="motion">
+    <option value="full" selected>Full &mdash; never drop quality</option>
+    <option value="auto">Adaptive &mdash; drop only if slow</option>
+    <option value="draft">Draft &mdash; always 0.6&times;</option>
+  </select>
+  <div class="note" id="mnote"></div>
+</div>
+
+<div class="panel" id="pDom">
+  <label>domain &mdash; x from, x to, y from, y to</label>
+  <div class="grid4">
+    <input type="number" id="x0" value="-1" step="0.5" title="x from">
+    <input type="number" id="x1" value="1" step="0.5" title="x to">
+    <input type="number" id="y0" value="-1" step="0.5" title="y from">
+    <input type="number" id="y1" value="1" step="0.5" title="y to">
+  </div>
+  <div class="tip">The rectangle of x and y the formula is evaluated over. With the
+    <b>height</b> camera it is a readout: the region follows from where the camera
+    stands and where it looks. Typing here still works and is read as &ldquo;show me
+    this much&rdquo; &mdash; the camera moves to frame it. In the other two modes the
+    wheel widens it and dragging moves it.</div>
+
+  <label for="q">quality <span id="qv">50</span> &rarr; grid <span id="sv">136</span><sup>2</sup></label>
+  <input type="range" id="q" min="0" max="100" value="50">
+  <div class="tip">Sample lines per side. At 136 the formula is evaluated 136&times;136
+    times and the surface is built from that grid: higher means finer detail and a
+    slower rebuild, nothing else.</div>
+
+  <label>box proportions &mdash; width, depth, height</label>
+  <div class="grid4">
+    <input type="number" id="bx" value="1" step="0.1" min="0.05" title="width">
+    <input type="number" id="by" value="1" step="0.1" min="0.05" title="depth">
+    <input type="number" id="bz" value="0.3" step="0.05" min="0.05" title="height">
+    <button class="btn" id="bfit" style="margin:0">even</button>
+  </div>
+  <div class="tip">The shape of the box the surface is drawn in, not the values it
+    holds. Raise the height to see shallow ripples that the default 0.3 flattens;
+    <b>even</b> makes it a plain cube. With the <b>height</b> camera there is no box
+    to shape &mdash; the third number becomes vertical exaggeration there, and 0.3
+    means the proportions frozen with the formula.</div>
+
+  <button class="btn" id="bfitz">Fit Z to what is on screen</button>
+  <label class="ck" for="autoz"><input type="checkbox" id="autoz"><span>refit z automatically when the range doubles</span></label>
+  <div class="tip">Off by default on purpose: an automatic refit makes the geometry a
+    consequence of the camera, and the relief sinks the moment a new peak comes into
+    view. Switched on, it refits only when the range needed is more than twice the
+    one in use, and says so when it does.</div>
+  <div class="tip">The vertical scale and the colour ramp are one thing, fixed when
+    you change the formula and left alone by the camera &mdash; otherwise moving the
+    view would change the shape of the plot. Press this to refit both to the region
+    you are looking at now.</div>
+</div>
+
+<div class="panel" id="pInfo">
+  <div class="lbl">measurements</div>
+  <table>
+    <tr><td>frame</td><td id="mp">&mdash;</td></tr>
+    <tr><td>render</td><td id="mb">&mdash;</td></tr>
+    <tr><td>pass</td><td id="mf">&mdash;</td></tr>
+    <tr><td>offset</td><td id="mo">0.00, 0.00</td></tr>
+  </table>
+  <button class="btn" id="reset">Reset view</button>
+</div>
+
+<div class="panel" id="pMode">
+  <div class="modebar">
+    <div class="grp">
+      <span class="lbl">the plot is drawn</span>
+      <div class="seg">
+        <button id="dCube" class="on">&#9723;&nbsp; in a cube</button><button id="dPlane">&#9707;&nbsp; across the view</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lbl">the view</span>
+      <div class="seg" id="views">
+        <button id="vTop">Top</button><button id="vFront">Front</button><button id="vSide">Side</button><button id="vIso">Iso</button><button id="vFit">Fit</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lbl">left mouse button does</span>
+      <div class="seg">
+        <button id="mTurn">&#128065;&nbsp; Turn</button><button id="mOrbit" class="on">&#8635;&nbsp; Orbit</button><button id="mPan">&#10021;&nbsp; Move</button>
+      </div>
+    </div>
+  </div>
+  <div class="hint" id="mousehint"></div>
+</div>
+
+<div id="gallery" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-label="Sample formulas">
+    <div class="head">
+      <div>
+        <b>Eighteen surfaces to start from</b>
+        <span>Every plate below is drawn by the library itself, from the formula
+          printed under it, in contour lines. Pick one and it lands in the
+          field, with the domain and the box height that suit it.</span>
+      </div>
+      <button class="x" id="galClose" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="grid" id="galGrid"></div>
+  </div>
+</div>
+
+<div id="about" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-label="About Nashira3D">
+    <button class="x" id="aboutClose" type="button" aria-label="Close">&#10005;</button>
+    <div class="top">
+      <svg class="sky" viewBox="0 0 660 190" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <radialGradient id="halo">
+            <stop offset="0%" stop-color="#fff4c1" stop-opacity=".55"/>
+            <stop offset="45%" stop-color="#69e7ff" stop-opacity=".16"/>
+            <stop offset="100%" stop-color="#69e7ff" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+      <circle cx="58" cy="44" r="0.8" fill="#dbe9ff" opacity="0.30"/>
+      <circle cx="112" cy="96" r="0.6" fill="#dbe9ff" opacity="0.22"/>
+      <circle cx="148" cy="32" r="1.0" fill="#dbe9ff" opacity="0.38"/>
+      <circle cx="196" cy="118" r="0.7" fill="#dbe9ff" opacity="0.24"/>
+      <circle cx="238" cy="58" r="0.9" fill="#dbe9ff" opacity="0.34"/>
+      <circle cx="292" cy="104" r="0.6" fill="#dbe9ff" opacity="0.20"/>
+      <circle cx="330" cy="26" r="1.1" fill="#dbe9ff" opacity="0.42"/>
+      <circle cx="372" cy="88" r="0.8" fill="#dbe9ff" opacity="0.28"/>
+      <circle cx="418" cy="50" r="0.7" fill="#dbe9ff" opacity="0.26"/>
+      <circle cx="452" cy="124" r="0.9" fill="#dbe9ff" opacity="0.30"/>
+      <circle cx="498" cy="36" r="1.0" fill="#dbe9ff" opacity="0.36"/>
+      <circle cx="536" cy="92" r="0.6" fill="#dbe9ff" opacity="0.20"/>
+      <circle cx="576" cy="60" r="0.8" fill="#dbe9ff" opacity="0.28"/>
+      <circle cx="604" cy="116" r="0.7" fill="#dbe9ff" opacity="0.24"/>
+      <circle cx="84" cy="132" r="0.7" fill="#dbe9ff" opacity="0.22"/>
+      <circle cx="266" cy="140" r="0.6" fill="#dbe9ff" opacity="0.18"/>
+      <circle cx="390" cy="142" r="0.8" fill="#dbe9ff" opacity="0.24"/>
+      <circle cx="520" cy="146" r="0.6" fill="#dbe9ff" opacity="0.18"/>
+      <g class="lead-star">
+        <circle cx="330" cy="26" r="26" fill="url(#halo)"/>
+        <circle cx="330" cy="26" r="1.9" fill="#fff4c1"/>
+      </g>
+      </svg>
+      <img src="/logo.png" width="512" height="154" alt="Nashira3D">
+    </div>
+    <div class="rule"></div>
+    <div class="body">
+      <p class="lead">Nashira3D is a three&#8209;dimensional plotting library for
+        Python. It is built for pictures that are exact, predictable, and worth
+        looking at &mdash; surfaces today; volumes, vector fields, and point clouds
+        in time. The idea behind it is short: the hard part belongs inside the
+        library, and what opens in front of you is space.</p>
+
+      <h4>the name</h4>
+      <p><em>Nashira</em> is the name the International Astronomical Union keeps
+        on its list for &gamma;&nbsp;Capricorni. Traditionally it means
+        <em>the fortunate one</em>, or the one who brings good news.</p>
+      <p>I took it for the sound first &mdash; it is rare, and it is beautiful.
+        Then it turned out to say what the project is. A point of light fixes a
+        position in space. It gives depth to what would otherwise be flat. It
+        turns darkness into a scene you can read.</p>
+
+      <h4>where it came from</h4>
+      <p>I wanted three&#8209;dimensional graphics in Python without the usual
+        trade. The tools I had kept asking me to choose: simple or fast,
+        handsome or portable, an interactive window or a file written on a
+        machine with no screen at all. I wanted one way of working that holds in
+        all three places.</p>
+
+      <h4>what it grew out of</h4>
+      <p>No single program. What pulls me is the task itself &mdash; turning
+        numbers into space. A function becomes a surface, a column of values
+        becomes relief, a scatter of points becomes a shape, and a calculation
+        becomes something you can walk around and understand.</p>
+
+      <div class="flag">
+        <h4>still an experiment</h4>
+        <p>Version 0.2 draws one thing: a surface <code>z = f(x, y)</code>. That
+          is where it starts, not where it stops. Volumes, vector fields, point
+          clouds, and fuller scenes belong here as well, and the interface was
+          written so they can arrive without breaking what already works &mdash;
+          it asks you for quality, not for a grid size.</p>
+        <p>So take this as an experiment for now. The work is honest and the
+          ground under it is solid, but it is not finished, and it will keep
+          changing.</p>
+      </div>
+
+    </div>
+    <div class="foot">
+      <span>library <span id="aboutVer">&mdash;</span></span>
+      <span>MIT</span>
+      <a class="sp" href="https://github.com/pisarev/nashira3d" target="_blank"
+         rel="noopener">github.com/pisarev/nashira3d</a>
+    </div>
+  </div>
+</div>
+
+<div id="firstrun">
+  <img src="/logo.png" width="512" height="154" alt="">
+  <b>Drag to circle the plot.</b>
+  <span>The plot is drawn inside a cube, and the left button circles it. The
+  wheel moves the camera closer and further; double&#8209;click on the surface to
+  say what the orbit should turn around. <kbd>Shift</kbd> or the
+  <kbd>right button</kbd> moves the view, <kbd>R</kbd> resets it, and the switch
+  below turns the cube into an endless plane you stand on.</span>
+</div>
+
+<script>
+"use strict";
+
+/* Nashira3D preview - A VIEWER, and nothing else.
+   -------------------------------------------------------------------------
+   There is no parsing of formulas here and no building of meshes. The page
+   sends the bridge a formula and a camera position, and gets back the finished
+   bytes of a frame - the same bytes nsh_api_v1.render returns to any other
+   caller.
+
+   WHY NOTHING IS COMPUTED HERE. A fallback parser in JS used to live here so
+   that the page would work without the bridge. It was given up on a
+   measurement, not on taste:
+
+     speed      the core 0.245 us per node, JS 0.227 - nobody gains anything;
+     vocabulary nine disagreements over thirty-one probes. The page accepted
+                atan, asin, log, pow, mod and e, which the library does not
+                have under those names, and did not know if(), x mod 2, lg or
+                arctan2, which it does.
+
+   A second parser that agrees with the first on simple formulas and disagrees
+   on the rest is more dangerous than no picture at all: it quietly shows the
+   wrong thing. If there is no bridge, that is what is said.                 */
+
+const $ = id => document.getElementById(id);
+const view = $("view"), cc = $("core"), c2 = cc.getContext("2d");
+const errBox = $("err"), enote = $("enote");
+
+const HOME = { az:0.9, el:0.45, fov:0.9 };
+let az = HOME.az, el = HOME.el, fov = HOME.fov;
+const lightAz = 2.2, lightEl = 0.9;
+
+let coreOk = null, coreBusy = false, coreDirty = true, coreVer = "", coreMs = 0;
+let coreFeat = [];
+/* WHAT THE LEFT BUTTON DOES. Three positions, not two.
+
+   There used to be two, and the first was called Orbit although it was not an
+   orbit: the camera stands still and turns its head. A real orbit is a
+   different gesture, and the arithmetic will not let them be combined into
+   one. An orbit at a constant HEIGHT demands that the distance change: it
+   equals h / sin(elevation). Drop the view towards the horizon and the radius
+   swells; raise it and the camera travels towards the object. That is exactly
+   the approach that had to go. So in an orbit it is the RADIUS that is held
+   constant while the height follows, and that is the direct opposite of a
+   turn.
+
+   Hence three positions rather than a reworking of one. */
+let drag = null, mouseDoes = "turn";
+
+/* HOW THE RELIEF IS SHOWN. Contour lines by default, as on a topographic map.
+   Colour shows the volume instantly, but colour cannot be READ OFF: the eye
+   does not turn a shade into a number. A line of equal height is a number.
+
+   The step of the lines is chosen by the core with the same 1-2-5 rule as the
+   axis ticks: two different roundings in one picture would drift apart, and a
+   label on an axis would not match a line on a slope. */
+let shade = "contours";
+/* WHERE THE PLOT IS DRAWN is the only question this switch answers. Everything
+   else follows from it, and follows IN THE CORE rather than here: one field
+   goes to the core - where the domain comes from - and it is that field which
+   decides whether the sampling lines stand evenly, whether the distance fades,
+   and whose the edges of the sheet are.
+
+   The evaluator and the renderer are the same in both cases. That was the
+   requirement: one mechanism, not two similar ones.
+
+       in a cube        - the domain is declared by a person, it has edges, and
+                          those edges are part of the subject. The camera moves
+                          around the box.
+       across the view  - the library works the domain out from the view, the
+                          sheet is endless, and the distance fades. The camera
+                          stands on the plane.
+
+   There used to be three positions here - height, region, camera - and they
+   overlapped: camera is the cube, height is the plane, and region is the same
+   plane with the domain led by navigation. Three overlapping models were
+   exactly what had to go. */
+let drawIn = "cube";
+/* ONE CAMERA FOR BOTH MODES: a point in the coordinates of the problem plus
+   two angles.
+
+   There used to be two - an orbit around the box and a standing point - each
+   with a set of gestures of its own. The price showed up the moment the modes
+   were brought together: for an orbit camera "turn on the spot" CANNOT BE
+   EXPRESSED at all, since its position is derived from the angles. So Turn and
+   Orbit in the cube did the same thing, and the button lied. Measured on the
+   live page: both gestures changed az, el and dist.
+
+   A standing point is the general case and an orbit is a special one: a point
+   on a sphere around the origin. So the general one stayed, and ONE gesture
+   serves both modes.
+
+   The price was the box proportions in x and y: a real camera has nothing to
+   distort the axes with, and with a point camera the core makes the base
+   square by itself. The third field kept the meaning of vertical exaggeration.
+   Said out loud, because it is a loss rather than a consequence. */
+
+/* THE CAMERA AS A STANDING POINT.
+
+   Drop a perpendicular from the camera to the plane of the plot - and it is
+   THAT height that is held as the elevation changes. The wheel changes the
+   same height and lets it cross the plane.
+
+   The page keeps THE STANDING POINT ITSELF (cx, cy) rather than what the
+   camera looks at. The difference here is not in convenience of notation but
+   in behaviour.
+
+   At first the TARGET was kept and the standing point derived from it:
+   cx = tx + h/tan(el). The perpendicular held - the height did not change by a
+   bit - but as the view tilted the camera TRAVELLED horizontally towards the
+   place above the target, and along a straight line the distance to the
+   surface dropped fourfold and more. That was reported plainly: on a turn the
+   camera rushes towards the plane, and it should not approach AT ALL.
+
+   Now the tilt touches neither the standing point nor the height: the camera
+   stands still and turns its head. That is what the model says - the tilt
+   changes only azimuth and elevation, the move only cx and cy, the wheel only
+   h.  */
+/* The starting values for the standing point are its own, not shared with the
+   orbit. An elevation of 0.45, familiar from the orbit camera, means here that
+   the upper ray of the frustum is only 0.02 radians above the horizon: two
+   dozen units of distance are visible while the mesh has the same number of
+   nodes, and the relief turns into a speck. Measured at a height of 3: an
+   elevation of 0.62 gives a domain of 23 units, an elevation of 1.0 about six.
+   The standing point is chosen so that at this elevation the central ray
+   arrives at the origin. */
+const HOME_STAND = { el: 1.0, h: 2.2, cx: 0.8797, cy: 1.1085 };
+let camX = HOME_STAND.cx, camY = HOME_STAND.cy;
+let camH = HOME_STAND.h;
+
+/* ---------- talking to the core -------------------------------------------- */
+
+function paintNote() {
+  if (coreOk === null) { enote.className = "note"; enote.textContent = "checking the core..."; return; }
+  if (!coreOk) {
+    enote.className = "note bad";
+    enote.innerHTML = location.protocol === "file:"
+      ? "Opened as a local file, so the core is out of reach. Run <b>python web/bridge.py</b> and open <b>http://localhost:8770/</b>."
+      : "The bridge is not answering. Run <b>python web/bridge.py</b>.";
+    return;
+  }
+  if (!coreFeat.includes("pan") || !coreFeat.includes("box")
+      || !coreFeat.includes("fit")) {
+    enote.className = "note bad";
+    enote.innerHTML = "The bridge is <b>older than this page</b>: moving the plot or " +
+      "changing the box will do nothing. Stop it and run <b>python web/bridge.py</b> again.";
+    return;
+  }
+  enote.className = "note";
+  enote.innerHTML = "Every frame is drawn by the <b>library</b> " + coreVer +
+    ": TJitParser reads the formula, nsh_surface builds the mesh, nsh_render draws it. " +
+    "This page parses nothing.";
+}
+
+async function coreHealth() {
+  if (location.protocol === "file:") { coreOk = false; paintNote(); return; }
+  try {
+    const r = await fetch("/health", { cache:"no-store" });
+    const j = await r.json();
+    coreOk = !!j.ok; coreVer = j.version || "";
+    coreFeat = Array.isArray(j.features) ? j.features : [];
+  } catch (e) { coreOk = false; }
+  paintNote();
+}
+
+/* ---------- resolution and quality while moving ---------------------------- */
+
+function resScale() {
+  const v = $("res").value, d = Math.min(devicePixelRatio || 1, 3);
+  if (v === "dpr") return d;
+  if (v === "2dpr") return Math.min(2 * d, 4);
+  return parseFloat(v) || 1;
+}
+
+const fullMs = [];
+function typicalMs() {
+  if (!fullMs.length) return 0;
+  const a = fullMs.slice().sort((x, y) => x - y);
+  return a[a.length >> 1];
+}
+
+const MOTION_BUDGET = 34;
+
+function motionDrop() {
+  const mode = $("motion").value;
+  if (mode === "full") return 1;
+  if (mode === "draft") return 0.6;
+  const t = typicalMs();
+  return (t > MOTION_BUDGET) ? 0.6 : 1;
+}
+
+function frameSize() {
+  const drop = drag ? motionDrop() : 1;
+  const k = resScale() * drop;
+  const W = Math.max(16, Math.min(4096, Math.round(view.clientWidth * k)));
+  const H = Math.max(16, Math.min(4096, Math.round(view.clientHeight * k)));
+  return [W, H, drop < 1];
+}
+
+function paintMotionNote() {
+  const mode = $("motion").value, t = typicalMs(), box = $("mnote");
+  box.className = "note";
+  if (mode === "full") { box.textContent =
+    "Quality never drops. If the view lags behind the mouse, lower the frame resolution."; return; }
+  if (mode === "draft") { box.textContent =
+    "Always coarse while moving, sharp again on release."; return; }
+  box.textContent = t
+    ? "Typical full frame " + t.toFixed(0) + " ms \u2014 " +
+      (t > MOTION_BUDGET ? "dropping to 0.6\u00d7 while moving." : "fast enough, quality kept.")
+    : "Measuring\u2026";
+}
+
+function paintResNote(aw, ah) {
+  const k = resScale();
+  $("resnote").textContent = "screen density " + (devicePixelRatio || 1).toFixed(2) +
+    ", frame " + aw + "\u00d7" + ah +
+    (k > (devicePixelRatio || 1) ? ", downsampled for smoother edges" : "");
+}
+
+/* ---------- the frame ------------------------------------------------------ */
+
+
+
+/* The rectangles of the panels, in FRAME pixels.
+
+   The core places the labels in the free places, and only the page knows which
+   places are free: the panels lie over the canvas and the core cannot see
+   them. The coordinates are converted from layout pixels to frame pixels by
+   the same factor the frame was ordered at: at High the frame is
+   devicePixelRatio times larger than the layout. */
+function panelRects(W, H) {
+  const r = view.getBoundingClientRect();
+  /* The canvas can report a ZERO size: the panel is not laid out yet, the tab
+     is in the background, the window is minimised. Dividing by such a size put
+     "Infinity" into the request - the core received rubbish instead of a list
+     of taken places. An empty list is more honest: if the places are unknown,
+     nothing is reported. */
+  if (!(r.width > 0) || !(r.height > 0)) return "";
+  const kx = W / r.width, ky = H / r.height;
+  const out = [];
+  for (const el of document.querySelectorAll(".panel")) {
+    /* Visibility is checked by SIZE and opacity, not by offsetParent: every
+       panel has position: fixed, and their offsetParent is null ALWAYS. With
+       that check the list came out empty and the core got nothing. */
+    const b = el.getBoundingClientRect();
+    if (parseFloat(getComputedStyle(el).opacity) < 0.05) continue;
+    const x = Math.round((b.left - r.left) * kx), y = Math.round((b.top - r.top) * ky);
+    const w = Math.round(b.width * kx),          h = Math.round(b.height * ky);
+    if (w > 0 && h > 0) out.push(x + "," + y + "," + w + "," + h);
+  }
+  return out.join(";");
+}
+
+let wantFitZ = false;
+
+/* A short notice. The auto-fit changes the GEOMETRY, and doing that in silence
+   is not allowed: a person will see the relief sag and decide it has broken. */
+let flashBox = null, flashTimer = 0;
+function flash(text) {
+  if (!flashBox) {
+    flashBox = document.createElement("div");
+    flashBox.id = "flash";
+    document.body.appendChild(flashBox);
+  }
+  flashBox.textContent = text;
+  flashBox.className = "on";
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { flashBox.className = ""; }, 1800);
+}
+
+/* The standing point is state, not a consequence. Neither the tilt nor the
+   wheel computes it: the tilt turns the head, the wheel raises and lowers. */
+function standPoint() {
+  return [camX, camY];
+}
+
+/* Place the camera so that the central ray arrives at a given point. */
+function aimAt(px, py) {
+  const t = Math.tan(el);
+  const d = Math.abs(t) < 1e-4 ? 0 : camH / t;
+  camX = px + d * Math.cos(az);
+  camY = py + d * Math.sin(az);
+}
+
+/* Show a given domain.
+
+   The height and the elevation come from a RULE, not from a search. A search
+   was tried and turned out useless twice: first it diverged - at a small
+   height the size of the domain is limited by the thickness of the slab and
+   barely depends on the height, and the height ran off to zero, 2.2 -> 0.002
+   in eight frames - and then, once it converged, it found the right SIZE by
+   lowering the camera by 0.17 units, that is, inside the relief.
+
+   The rule rests on the z scale being FROZEN relative to the domain: the slab
+   the surface lies in is always about 0.9 of the half-width of the domain it
+   was frozen against. So a height of 1.6 half-widths is certainly above the
+   relief for any formula, not only for a lucky one.
+
+   The pair was chosen BY EYE over four frames rather than by a number: with a
+   domain of +-1
+
+       height 1.1, elevation 0.85  ->  only a slope, the peak cut off
+       height 1.6, elevation 0.85  ->  the whole relief, plane around it
+       height 1.1, elevation 1.00  ->  too close
+       height 1.6, elevation 1.00  ->  the peak runs into the top of the frame
+
+   The aim takes NO correction: aimAt already puts the origin in the middle of
+   the screen. A correction by the middle of the domain, written in here at
+   first, led it away from there - the middle of the bounding rectangle and the
+   middle of the screen are different points, because the visible field is a
+   trapezium, not a rectangle. */
+function frameDomain(x0, x1, y0, y1) {
+  const want = Math.max(x1 - x0, y1 - y0) / 2;
+  el = 0.85;
+  /* THE EXAGGERATION GOES INTO THE HEIGHT. The rule "one and a half to two
+     half-sizes" was derived at an exaggeration of one: the slab the surface
+     lies in is then about 0.9 of the half-width. A slab exaggerated threefold
+     is three times thicker, and a camera placed by the old rule ends up INSIDE
+     the relief - which is what happened as soon as the cube was opened after
+     the plane. */
+  const exag = Math.max(1, (+$("bz").value || 0.3) / 0.3);
+  camH = Math.max(0.02, 1.6 * want * exag);
+  aimAt((x0 + x1) / 2, (y0 + y1) / 2);
+  coreDirty = true;
+}
+
+/* THE STEP OF THE WHEEL. Multiplication never crosses zero - h *= 0.9
+   approaches zero and never passes it. Here the step is taken in the asinh
+   coordinate: far from zero it behaves like a logarithm, so the step stays
+   proportional, and near zero like an ordinary ruler, so the sign changes with
+   no jump and no forbidden zone. */
+const H_SOFT = 0.09;
+const H_LIMIT = 1e5;
+function stepHeight(dir) {
+  /* THE DISTANCE TO THE PLANE, not the signed height.
+
+     The step used to be taken on camH itself, and below the plane the wheel
+     worked the other way round: away from you led from -5.6 to -6.4, that is,
+     FARTHER from the surface. That was reported plainly: wherever I am, the
+     wheel has to work the same. Measured at nine heights - above zero "closer"
+     in every case, below zero "farther" in every case.
+
+     The side is preserved. So the wheel no longer passes through the plane -
+     that rule was given up deliberately, and the promise was removed from the
+     hint. Below you go by orbit: it places the camera on a sphere, and an
+     elevation below zero takes it under the plane. */
+  const side = camH < 0 ? -1 : 1;
+  const u = Math.asinh(Math.abs(camH) / H_SOFT) - dir * 0.12;
+  let m = H_SOFT * Math.sinh(u);
+  if (m < 0) m = 0;                       // nothing is closer than the plane
+  camH = side * m;
+  if (Math.abs(camH) < 1e-9) camH = 0;    // a flat zero, not 3e-18
+  /* The limit is FAR AWAY, not at zero. Far away the step is proportional, and
+     a hundred and fifty clicks take the height past four hundred thousand -
+     the domain grows with it and the mesh stops meaning anything. At zero
+     there is no limit and there cannot be one: zero is a permitted position
+     for the camera. */
+  if (camH > H_LIMIT) camH = H_LIMIT;
+  if (camH < -H_LIMIT) camH = -H_LIMIT;
+  
+}
+
+/* Moving THE STANDING POINT across the plane. The measure comes from the same
+   geometry as the picture: at the distance to the place the central ray
+   strikes, half the frame vertically covers tan(fov/2)*dist units of the
+   problem. Along the line of sight 1/sin(el) is added: the plane is seen at an
+   angle, and the very same pixel near the horizon is worth far more units. */
+function panTarget(dxPx, dyPx) {
+  const se = Math.sin(el);
+  if (Math.abs(se) < 1e-6) return;
+  const dist = Math.abs(camH / se);
+  const t = Math.tan(fov / 2) * dist;
+  const aspect = Math.max(0.05, view.clientWidth / Math.max(1, view.clientHeight));
+  const uAcross = 2 * t * aspect / Math.max(1, view.clientWidth);
+  const uAlong = 2 * t / Math.abs(se) / Math.max(1, view.clientHeight);
+  const a1 = dxPx * uAcross;
+  const a2 = dyPx * uAlong * (se < 0 ? -1 : 1);
+  camX -= (-Math.sin(az) * a1 + Math.cos(az) * a2);
+  camY -= ( Math.cos(az) * a1 + Math.sin(az) * a2);
+  $("mo").textContent = camX.toFixed(2) + ", " + camY.toFixed(2);
+}
+
+/* THE TURN GOES BY THE POSITION OF THE CURSOR, NOT BY ITS SPEED.
+
+   The angle used to be accumulated by increments: so many radians per pixel.
+   The number 0.008 came from nowhere and gave 876 degrees across the width of
+   the frame - the cursor crossed a third of the screen and the plane spun
+   twice. Replacing the number with "the field of view across the width of the
+   frame" reduced the error but did not remove its cause: increments
+   accumulate, and where the plane ends up depends on the path of the cursor
+   rather than on where it stopped.
+
+   It is done the way the hand demands: on the press the WORLD direction of the
+   ray under the cursor is remembered, and on every movement the angles are
+   solved from the condition "that direction is under the cursor NOW". The path
+   of the cursor takes no part - wherever it led, that is where you are.
+   Release, take hold again, and there is a new grab point.
+
+   It is solved numerically by Newton steps: the relation between screen
+   coordinates and azimuth and elevation is nonlinear, and a closed formula
+   would be longer and more temperamental. The derivatives are approximate, so
+   there are ten steps rather than four: on a large jump four were not enough -
+   the discrepancy reached 0.025 of a half-frame, that is, a couple of dozen
+   pixels. A mouse moves in small steps and converges in one, but ten cost
+   nothing and the margin is needed. */
+
+function camBasis(a, e) {
+  const ce = Math.cos(e), se = Math.sin(e), ca = Math.cos(a), sa = Math.sin(a);
+  const f = [-ce * ca, -ce * sa, -se];
+  const r = [-sa, ca, 0];
+  const u = [r[1] * f[2] - r[2] * f[1],
+             r[2] * f[0] - r[0] * f[2],
+             r[0] * f[1] - r[1] * f[0]];
+  return [f, r, u];
+}
+
+function screenScale() {
+  const w = Math.max(1, view.clientWidth), h = Math.max(1, view.clientHeight);
+  const tv = Math.tan(fov / 2);
+  return [tv * (w / h), tv, w, h];
+}
+
+/* The world direction of the ray through a point of the frame. sx and sy run
+   from -1 to 1. */
+function rayWorld(sx, sy, a, e) {
+  const [th, tv] = screenScale();
+  const [f, r, u] = camBasis(a, e);
+  const v = [f[0] + u[0] * tv * sy + r[0] * th * sx,
+             f[1] + u[1] * tv * sy + r[1] * th * sx,
+             f[2] + u[2] * tv * sy + r[2] * th * sx];
+  const L = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / L, v[1] / L, v[2] / L];
+}
+
+/* Where a world direction lands on the frame. null means it is behind the
+   camera. */
+function dirToScreen(d, a, e) {
+  const [th, tv] = screenScale();
+  const [f, r, u] = camBasis(a, e);
+  const df = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+  if (df <= 1e-6) return null;
+  const dr = d[0] * r[0] + d[1] * r[1] + d[2] * r[2];
+  const du = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+  return [dr / (df * th), du / (df * tv)];
+}
+
+/* Find the azimuth and elevation that put the direction d at the point
+   (sx, sy). */
+function turnTo(d, sx, sy) {
+  /* A CLOSED FORM, not iterations.
+
+     There used to be ten steps here with a DIAGONAL estimate of the
+     sensitivity - which is not Newton: Newton needs the full two by two
+     Jacobian. A factor of 1/cos(el) with a floor of 0.2 did not remove the
+     singularity at a vertical look, it merely changed the law of motion around
+     it.
+
+     The derivation. The ray through a point of the frame, in the camera basis,
+     is (1, x, y) / L, where x = th*sx, y = tv*sy and L = sqrt(1 + x^2 + y^2).
+     The world vertical component is then
+
+         dz = (-sin e + y*cos e) / L = K*sin(phi - e) / L,
+         K = sqrt(1 + y^2),  phi = atan2(y, 1).
+
+     Hence sin(phi - e) = dz*L/K and the elevation comes from a single arcsine.
+     The azimuth after that comes from a single arctangent.
+
+     THE LIMIT that follows from the same place: a solution exists only when
+     |s| <= 1. That is not a numerical trouble but a property of the model:
+     with only an azimuth and an elevation, and no roll, not every world
+     direction can be placed at every point of the screen. An unreachable
+     cursor position does not move the camera at all - which is more honest
+     than sliding off to the nearest one available.
+
+     At a vertical look the azimuth is not defined at all: the central ray is
+     vertical and says nothing about rotation around the vertical. There the
+     previous azimuth is kept. */
+  const [th, tv] = screenScale();
+  const x = th * sx, y = tv * sy;
+  const L = Math.sqrt(1 + x * x + y * y);
+  const K = Math.sqrt(1 + y * y);
+  const phi = Math.atan2(y, 1);
+
+  const sVal = d[2] * L / K;
+  if (!(Math.abs(sVal) <= 1)) return;          // unreachable - do not move
+
+  const asin = Math.asin(sVal);
+  const cand = [phi - asin, phi - Math.PI + asin];
+  let best = null, bestD = Infinity;
+  for (const e of cand) {
+    const lim = Math.PI / 2 - 1e-3;
+    if (e < -lim || e > lim) continue;
+    const dd = Math.abs(e - el);
+    if (dd < bestD) { bestD = dd; best = e; }
+  }
+  if (best === null) return;
+
+  const e = best;
+  const A = (Math.cos(e) + y * Math.sin(e)) / L;
+  const B = x / L;
+  const flat = Math.hypot(d[0], d[1]);
+
+  /* The azimuth is defined only if the direction is not vertical. */
+  if (flat > 1e-9 && Math.hypot(A, B) > 1e-9) {
+    az = Math.atan2(d[1], d[0]) - Math.atan2(B, -A);
+  }
+  el = e;
+}
+
+/* ---------- THE ORBIT ------------------------------------------------------
+
+   A turn holds the camera in place and turns its head. An orbit does the
+   opposite: it holds THE OBJECT in place and leads the camera around it on a
+   sphere of constant radius.
+
+   THE PIVOT is the point the camera looks at now: the intersection of the
+   central ray with the plane. Not the point under the cursor, and that
+   matters. The pivot is the FIXED POINT of the motion; take it under the
+   cursor and it would stay where it was taken while the cursor moved away from
+   it. Taking it in the middle of the frame moves nothing at the moment of the
+   press: the central ray already looks there.
+
+   If the camera looks past the plane (along it, or up at the sky), there is no
+   pivot on the plane, and it is taken simply ahead along the ray. An orbit
+   around a point in the air is still an orbit, and a refusal to work would
+   look like a breakage.
+
+   WHY THE LAW HERE IS BY DISPLACEMENT AND NOT A GRAB ON A POINT. For a turn a
+   grab is possible: two unknowns - azimuth and elevation - and two conditions,
+   where on the screen the direction taken has to end up. For an orbit that
+   cannot be done, and not out of laziness: the pivot is MOTIONLESS at any
+   orbit angle, so the condition "keep it under the cursor" gives no
+   information about the angle at all. There are no equations.
+
+   So the angle comes from the displacement of the cursor - but BY POSITION,
+   not by path: the angles are measured from those remembered on the press, and
+   bringing the cursor back returns the view to exactly the same place. The
+   path does not accumulate.
+
+   The measure of the displacement is not arbitrary either. It is the one at
+   which the ground at the distance of the pivot follows the cursor exactly: an
+   arc of radius R at an angle da is R*da, while the cursor travels
+   (dx/W)*2*tan(fov/2)*R along the ground - the radius cancels and da =
+   2*tan(fov/2)*(dx/W) remains. The same law as for a turn near the centre of
+   the frame, so the two gestures feel equally fast. */
+
+/* The position of the pivot IN THE CAMERA'S FRAME: q = M^T (P - C), where the
+   columns of M are F, R, U. The first component is the depth along the view,
+   the other two are sideways and upwards.
+
+   This value is what the whole thing was for. Placing the camera afterwards as
+   C = P - M(a,e)q gives three things at once for free: the pivot keeps ITS
+   place on the screen (rather than jumping to the middle of the frame), the
+   radius to it does not drift (M is orthonormal), and the formula degenerates
+   by itself into an ordinary sphere when the pivot was in the centre. */
+function camQ(P) {
+  const b = camBasis(az, el);
+  const v = [P[0] - camX, P[1] - camY, P[2] - camH];
+  return [b[0][0]*v[0] + b[0][1]*v[1] + b[0][2]*v[2],
+          b[1][0]*v[0] + b[1][1]*v[1] + b[1][2]*v[2],
+          b[2][0]*v[0] + b[2][1]*v[1] + b[2][2]*v[2]];
+}
+
+/* The other way: place the camera so that the pivot P has the coordinates q in
+   its frame. */
+function camFromQ(P, q, a, e) {
+  const b = camBasis(a, e);
+  az = a; el = e;
+  camX = P[0] - (b[0][0]*q[0] + b[1][0]*q[1] + b[2][0]*q[2]);
+  camY = P[1] - (b[0][1]*q[0] + b[1][1]*q[1] + b[2][1]*q[2]);
+  camH = P[2] - (b[0][2]*q[0] + b[1][2]*q[1] + b[2][2]*q[2]);
+}
+
+/* The point of the base plane under a given point of the frame. Returns null
+   if the ray does not meet the plane: looking at the sky is legitimate,
+   pretending that a meeting took place is not. */
+function groundAt(sx, sy) {
+  const d = rayWorld(sx, sy, az, el);
+  if (Math.abs(d[2]) < 1e-12) return null;
+  const t = -camH / d[2];
+  if (!(t > 1e-9) || t > 1e9) return null;
+  return [camX + d[0] * t, camY + d[1] * t, 0];
+}
+
+function orbitPivot() {
+  const c = rayWorld(0, 0, az, el);        // the central ray
+  let t = null;
+  if (Math.abs(c[2]) > 1e-9) {
+    const tt = -camH / c[2];
+    if (tt > 1e-9 && tt < 1e7) t = tt;
+  }
+  if (t === null) t = Math.max(Math.abs(camH), 1);   // pivot ahead, not on the plane
+  return { p: [camX + c[0] * t, camY + c[1] * t, camH + c[2] * t], r: t };
+}
+
+/* Place the camera on a sphere of radius r around the pivot at given angles.
+
+   The camera looks AT the pivot: the unit view is f = -(cos e cos a,
+   cos e sin a, sin e), so the camera stands at the pivot minus r*f, that is,
+   plus r*(cos e cos a, cos e sin a, sin e). The height comes out by itself and
+   depends on the elevation - and that is exactly the difference between an
+   orbit and a turn, where the height is untouchable. */
+function orbitPlace(pivot, r, a, e) {
+  const ce = Math.cos(e);
+  camX = pivot[0] + r * ce * Math.cos(a);
+  camY = pivot[1] + r * ce * Math.sin(a);
+  camH = pivot[2] + r * Math.sin(e);
+  az = a;
+  el = e;
+}
+
+/* THE SENSITIVITY OF THE ORBIT. Pi across the SHORT side of the frame, that
+   is, 180 degrees over its length, and one factor for both axes.
+
+   Isotropy here is not decoration. A person moves one device, and a mouse
+   vector a hundred pixels long must not give different control depending on
+   where it points. VTK divides by the size along each axis and on a frame of
+   1912 by 940 gets exactly twice the sensitivity one way: 0.105 against 0.213
+   degrees per pixel. three.js divides both by the height - the source says so
+   itself, "yes, height".
+
+   And the angle is NOT derived from the field of view. There used to be
+   2*th*(dx/W) here, where th depends on fov: that gave "drag the image by the
+   amount of its visible angle" rather than "turn the object". That is a
+   conceptual mistake, not a setting.
+
+   Near a vertical look a turntable inevitably loses sensitivity in azimuth.
+   Compensating for that with a factor of 1/cos(el) IS NOT ALLOWED - at the
+   pole it blows up. */
+function orbitRate() {
+  return Math.PI / Math.max(1, Math.min(view.clientWidth, view.clientHeight));
+}
+
+/* The elevation of the orbit is clamped with engineering clearance rather than
+   at the singularity itself. Half a degree is indistinguishable by eye from a
+   vertical look, and the control manifold never reaches the singularity. A
+   true view from above is set by a separate command. */
+const ORBIT_EL_LIMIT = (89.5 * Math.PI) / 180;
+
+function orbitClamp(e) {
+  return Math.max(-ORBIT_EL_LIMIT, Math.min(ORBIT_EL_LIMIT, e));
+}
+
+/* THE STEP OF THE ORBIT. Two different laws under one button - and that is not
+   a compromise.
+
+   The plane and the cube share the STATE of the camera but are not obliged to
+   share the LAW that controls it. In the cube a person examines a bounded
+   object; on the plane they stand on an endless sheet. Those are two different
+   navigation problems.
+
+   In the cube: a constant pivot, angles measured from the press, the camera
+   placed through q - so the pivot keeps its place on the screen. There is no
+   side of the base plane here at all: a finite object has no reason to change
+   the meaning of a drag because the camera happens to be above or below the
+   floor of the box.
+
+   On the plane: as it was, and that is frozen by the baseline. The side factor
+   stays, but it is named honestly - it is not physics but an interface
+   contract, "the visible sheet follows the hand". It is computed from THE SIDE
+   OF THE BASE PLANE, that is, from the sign of the height rather than the sign
+   of the elevation: that way it is visible what exactly is being compensated.
+   It is taken at the moment of the press, or the controls would flip over in
+   the middle of a movement. */
+function orbitDrag(ddx, ddy) {
+  if (drag.noOrbit) return;      // no pivot ahead - nothing to orbit
+  if (drawIn === "cube") {
+    const s = orbitRate();
+    const a = drag.az0 - s * ddx;
+    const e = orbitClamp(drag.el0 + s * ddy);
+    camFromQ(drag.pivot, drag.q, a, e);
+  } else {
+    const sc = screenScale();
+    const th = sc[0], tv = sc[1], W = sc[2], H = sc[3];
+    const side = drag.planeSide;
+    const a = drag.az0 - side * 2 * th * (ddx / W);
+    const e = tiltStand(drag.el0 + side * 2 * tv * (ddy / H));
+    orbitPlace(drag.pivot, drag.radius, a, e);
+  }
+  $("mo").textContent = camX.toFixed(2) + ", " + camY.toFixed(2);
+}
+
+
+
+/* A fallback turn for a standing point: it works only when the grab on a ray
+   did not happen. The signs are the same as in turnTo - the camera stands
+   still and the whole view moves at once. */
+function turnFallback(dx, dy) {
+  az += dx * 0.004;
+  el = tiltStand(el - dy * 0.004);
+}
+
+/* With a standing point the elevation is NOT clamped from below: the camera
+   has every right to look along the plane and from beneath it. The only limit
+   is against turning fully over. */
+/* One entry point for every way of moving the view: the mouse, the arrows,
+   anything else. While there were two, they managed to drift apart - the
+   arrows moved the domain even in the mode where the domain is not moved at
+   all. */
+/* THE MOVE IN THE CUBE. The measure is taken from the DEPTH OF THE OBJECT, not
+   from the distance to the base plane.
+
+   The old measure tan(fov/2)*|h/sin(el)| is the physics of an endless sheet:
+   at a shallow look it runs off to infinity not because the object is far away
+   but because the plane is. Measured: when the central ray strikes past the
+   cube, a drag of a hundred pixels moved the cube by 75, 140, 291 and 605
+   pixels - six times faster than the hand.
+
+   The right way is this: a plane PARALLEL TO THE SCREEN is passed through the
+   pivot, the rays through the starting and the current cursor point cross it
+   at Q0 and Q1, and the camera moves by the difference. Then the point grabbed
+   at the depth of the object stays under the mouse. */
+function cubePan(dxPx, dyPx) {
+  const P = focusPoint();
+  const q = camQ(P);
+  const depth = q[0];
+  if (!(depth > 1e-9)) return;              // pivot not ahead - nothing to move by
+  const sc = screenScale();
+  const th = sc[0], tv = sc[1], W = sc[2], H = sc[3];
+  /* Half a frame at depth covers depth*th across and depth*tv vertically. So
+     one pixel of the frame is worth that many units. */
+  const uX = 2 * depth * th / Math.max(1, W);
+  const uY = 2 * depth * tv / Math.max(1, H);
+  const b = camBasis(az, el);
+  const R = b[1], U = b[2];
+  const mx = -dxPx * uX, my = dyPx * uY;    // screen down means world down
+  camX += R[0] * mx + U[0] * my;
+  camY += R[1] * mx + U[1] * my;
+  camH += R[2] * mx + U[2] * my;
+  $("mo").textContent = camX.toFixed(2) + ", " + camY.toFixed(2);
+}
+
+function nav_pan(dxPx, dyPx) {
+  /* The arrows go THE SAME WAY as the mouse: one gesture, one path. */
+  if (drawIn === "cube") cubePan(dxPx, dyPx);
+  else panTarget(dxPx, dyPx);
+}
+
+function tiltStand(v) {
+  const lim = Math.PI / 2 - 1e-3;
+  return Math.max(-lim, Math.min(lim, v));
+}
+
+function coreQuery(W, H) {
+  return "f=" + encodeURIComponent($("f").value) +
+    "&shade=" + shade +
+    "&region=" + (drawIn === "plane" ? "view" : "declared") +
+    "&x0=" + declDom[0] + "&x1=" + declDom[1] +
+    "&y0=" + declDom[2] + "&y1=" + declDom[3] +
+    "&q=" + $("q").value + "&axes=" + ($("ax").checked ? 1 : 0) +
+    "&az=" + az + "&el=" + el + "&fov=" + fov +
+    "&bx=1&by=1&bz=" + ($("bz").value || 0.3) +
+    "&fit=0" +
+    "&stand=1&camx=" + standPoint()[0] + "&camy=" + standPoint()[1] +
+    "&camh=" + camH +
+    "&grid=1&obst=" + encodeURIComponent(panelRects(W, H)) +
+    (wantFitZ ? "&fitz=1" : "") +
+    "&autoz=" + ($("autoz").checked ? 1 : 0) +
+    "&w=" + W + "&h=" + H;
+}
+
+/* A DEADLINE FOR A FRAME. Without one a hung answer stops the page FOREVER and
+   in silence: coreBusy stays raised, the frame pump skips every pass, and it
+   looks like a frozen picture with not a word about why.
+
+   Twenty seconds is not a round number for the sake of roundness. The heaviest
+   frame measured (quality 100, full screen, mesh rebuilt) takes 55 ms; twenty
+   seconds is three hundred times that, and hitting the deadline by accident is
+   impossible. */
+const FRAME_DEADLINE_MS = 20000;
+
+async function coreFetch() {
+  const [W, H, rough] = frameSize();
+  coreBusy = true;
+  const stop = new AbortController();
+  const bell = setTimeout(() => stop.abort(), FRAME_DEADLINE_MS);
+  try {
+    const q = coreQuery(W, H);
+    wantFitZ = false;                 // the flag clears as soon as it HAS GONE into the request
+    const r = await fetch("/frame?" + q, { cache:"no-store", signal: stop.signal });
+    if (!r.ok) { errBox.textContent = await r.text(); return; }
+    errBox.textContent = "";
+    coreMs = parseFloat(r.headers.get("X-Render-Ms") || "0");
+
+    /* The size is taken FROM THE ANSWER, not from the request: the bridge has
+       every right to clamp the frame to its own ceiling, and the length of the
+       body has to be checked against the DECLARED size. */
+    const aw = parseInt(r.headers.get("X-Width") || "0", 10);
+    const ah = parseInt(r.headers.get("X-Height") || "0", 10);
+    const buf = new Uint8ClampedArray(await r.arrayBuffer());
+    if (!aw || !ah || buf.length !== aw * ah * 4) {
+      errBox.textContent = "inconsistent frame: " + buf.length +
+        " bytes for a declared " + aw + "\u00d7" + ah;
+      return;
+    }
+    if (cc.width !== aw || cc.height !== ah) { cc.width = aw; cc.height = ah; }
+    c2.putImageData(new ImageData(buf, aw, ah), 0, 0);
+
+    if (!rough) { fullMs.push(coreMs); if (fullMs.length > 7) fullMs.shift(); }
+    $("mb").textContent = coreMs.toFixed(1) + " ms";
+    $("mf").textContent = rough ? "coarse" : "full";
+    $("mp").textContent = aw + "\u00d7" + ah + (aw !== W || ah !== H ? " (clamped)" : "");
+    if (drawIn === "plane") {
+      $("mo").textContent = "h " + camH.toFixed(3);
+      const rg = r.headers.get("X-Region");
+      /* An empty domain is not a refusal. The camera has gone below the sheet
+         and still looks down, that is, AWAY from the surface; to see it from
+         below the elevation is raised by hand. Saying nothing about that is
+         not allowed: the frame is empty and a person will decide it has
+         broken. */
+      errBox.textContent = rg ? "" :
+        (camH < 0 && el > 0
+          ? "You are below the surface and still looking down. Drag upward to tilt "
+            + "the view back toward it."
+          : "Nothing of the surface is in view.");
+      if (rg) {
+        const v = rg.split(",").map(Number);
+        if (v.length === 4 && v.every(Number.isFinite)) {
+          dom = v;             /* a readout only: declDom is NOT touched, or
+                                  the core would get its own result back and
+                                  the reference scale would drift */
+          showDomain();
+        }
+      }
+    } else {
+      $("mo").textContent = camX.toFixed(2) + ", " + camY.toFixed(2);
+    }
+    if (r.headers.get("X-Auto-Z")) flash("Z scale refitted");
+    $("sv").textContent = 16 + Math.round(+$("q").value * 2.4);
+    $("qv").textContent = $("q").value;
+    paintResNote(aw, ah);
+    paintMotionNote();
+  } catch (e) {
+    /* A refusal on the deadline is said out loud: silence here is
+       indistinguishable from sound working, and a person is waiting for a
+       picture. */
+    if (e && e.name === "AbortError") {
+      errBox.textContent = "The core did not answer within "
+        + (FRAME_DEADLINE_MS / 1000) + " seconds. The frame was dropped; "
+        + "moving the view will ask for another one.";
+    } else {
+      coreOk = false; paintNote();
+    }
+  } finally { clearTimeout(bell); coreBusy = false; }
+}
+
+function pump() {
+  requestAnimationFrame(pump);
+  if (coreOk !== true || coreBusy || !coreDirty) return;
+  coreDirty = false;
+  coreFetch();
+}
+
+/* ---------- controlling the view ------------------------------------------- */
+
+let modeTip = null;
+function showMode(what) {
+  if (!modeTip) {
+    modeTip = document.createElement("div");
+    modeTip.id = "modetip";
+    document.body.appendChild(modeTip);
+  }
+  modeTip.textContent = what === "move" ? "moving"
+                      : what === "orbit" ? "orbiting" : "turning";
+  modeTip.className = "on" + (what === "move" ? " pan" : "");
+}
+
+function setMode(what) {
+  mouseDoes = what;
+  $("mTurn").classList.toggle("on", what === "turn");
+  $("mOrbit").classList.toggle("on", what === "orbit");
+  $("mPan").classList.toggle("on", what === "move");
+  view.className = what === "move" ? "pan" : "orbit";
+  paintMouseHint();
+}
+$("mTurn").onclick = () => setMode("turn");
+$("mOrbit").onclick = () => setMode("orbit");
+$("mPan").onclick = () => setMode("move");
+
+/* ---------- navigating THE DOMAIN, not the camera -------------------------
+   As in a flat plotter: the plot fills the frame, and zooming changes not how
+   close the camera is but HOW MUCH OF THE FUNCTION is visible. Move away and
+   the domain is wider; drag and the coordinate grid travels. There is no
+   "choose a scale" step in such a layout at all.
+
+   The price is honest: every movement of the wheel or drag needs the mesh
+   recomputed. Measured - at quality 50 that is 6.6 ms against 2.6 without a
+   recompute, at quality 100 it is 18.6 ms. Turning the camera does not change
+   the domain and needs no recompute at all.                                */
+
+/* THE PERSISTENT POINT OF INTEREST OF THE CUBE.
+
+   Not "take the geometric centre afresh on every press" but a value that
+   lives: that is how Blender, Maya and SolidWorks do it, and so does this. To
+   begin with it is the middle of the declared domain; a double click puts it
+   on the surface WITHOUT MOVING the camera. Then the next orbit goes around
+   the chosen detail: first you look at the whole object, then you take a local
+   peak and study around it. */
+let cubeFocus = null;          // null means "take the middle of the domain"
+
+function focusPoint() {
+  if (cubeFocus) return cubeFocus.slice();
+  return [(declDom[0] + declDom[1]) / 2, (declDom[2] + declDom[3]) / 2, 0];
+}
+
+/* The radius of the sphere enclosing the declared domain. The limits of
+   approach are expressed through it: not in units of the problem, which differ
+   for every formula, but in fractions of the object itself. */
+function cubeRadius() {
+  const hx = (declDom[1] - declDom[0]) / 2, hy = (declDom[3] - declDom[2]) / 2;
+  const r = Math.hypot(hx, hy);
+  return (r > 1e-12 && isFinite(r)) ? r : 1;
+}
+
+let bzCube = "0.3", bzPlane = "0.9";
+/* The choice of gesture IS REMEMBERED PER MODE. For the cube the most natural
+   is an orbit, for the plane a turn on the spot, because there a person stands
+   ON the surface rather than examining an object from outside. Hiding the
+   other gestures is not allowed: a panel that changes its set of options is
+   harder to learn, and mathematically all three are valid in both modes -
+   only the most natural one differs. */
+let mouseCube = "orbit", mousePlane = "turn";
+
+function setDrawIn(mode) {
+  const was = drawIn;
+  /* The choice is remembered only on a REAL change of mode. The initial call
+     comes with the same name as is already set, and without this check it
+     saved the current gesture over the default: the cube opened with a turn on
+     the spot instead of an orbit. */
+  if (was !== mode) {
+    if (was === "cube") mouseCube = mouseDoes;
+    else if (was === "plane") mousePlane = mouseDoes;
+  }
+  drawIn = mode;
+  paintMouseHint();
+  $("dCube").classList.toggle("on", mode === "cube");
+  /* An endless sheet has no canonical views: there is nothing to fit, and
+     "from above" would mean looking at nowhere. The buttons go out rather than
+     lie. */
+  $("views").style.display = (mode === "cube") ? "" : "none";
+  $("dPlane").classList.toggle("on", mode === "plane");
+  const box = $("nnote");
+  box.className = "note";
+  /* The third box field means DIFFERENT things in the two modes, which is why
+     it is remembered separately. It used to leak: visit the plane and the cube
+     opened with the relief exaggerated threefold and the camera sitting inside
+     it. What a person typed is preserved: what is remembered is not the
+     default but what stands now. */
+  if (was === "cube") bzCube = $("bz").value;
+  else if (was === "plane") bzPlane = $("bz").value;
+  $("bz").value = (mode === "plane") ? bzPlane : bzCube;
+  setMode(mode === "cube" ? mouseCube : mousePlane);
+  if (mode === "plane") {
+    if (el < HOME_STAND.el * 0.6) el = HOME_STAND.el;
+    box.textContent =
+      "The plot has no edges: the region follows from where the camera stands and "
+      + "where it looks. Drop a perpendicular to the plane and the wheel changes that "
+      + "distance &mdash; forward is closer from either side. Sampling follows the screen: "
+      + "dense underfoot, sparse towards the horizon, and the far edge dissolves into "
+      + "the background because it is the edge of our sampling, not of the function.";
+  } else {
+    box.textContent =
+      "The formula is evaluated over the rectangle you type, and the plot is drawn "
+      + "inside a box with that rectangle as its floor. The edges are real: they are "
+      + "where you said the picture ends. Sampling is even across the region and "
+      + "nothing dissolves. The camera works exactly as it does across the view: it "
+      + "turns, it circles, it moves, and the wheel closes the gap to the surface.";
+  }
+  coreDirty = true;
+}
+/* The hint at the bottom is written for the CURRENT mode. It promises how the
+   mouse behaves, and the behaviour differs between modes: saying "wheel widens
+   the domain" where the wheel changes the height of the camera is a lie in the
+   most visible place there is. */
+function paintMouseHint() {
+  const box = $("mousehint");
+  if (!box) return;
+  /* The promise about a double click is DIFFERENT in the two modes, and it is
+     written differently as well. In the cube it sets the point the orbit will
+     go around, while the reset stays on R and on the button. On the infinite
+     plane there is no persistent point at all, and there it still resets.
+     Promising one thing and doing another - in the most visible place - is not
+     allowed. */
+  const common = "<kbd>shift</kbd>&#8209;drag or <kbd>right button</kbd> moves &middot; "
+    + (drawIn === "cube"
+        ? "double&#8209;click sets what to orbit around &middot; <kbd>R</kbd> resets"
+        : "<kbd>R</kbd> or double&#8209;click resets");
+  const left = (mouseDoes === "orbit")
+    ? "drag circles the plot at a fixed distance"
+    : (mouseDoes === "move") ? "drag moves the plot"
+    : "drag turns the plot &middot; <kbd>alt</kbd>&#8209;drag circles it";
+  box.innerHTML = left + " &middot; wheel moves the camera closer and further "
+    + "&middot; " + common;
+}
+
+function setShade(mode) {
+  shade = mode;
+  $("sLines").classList.toggle("on", mode === "contours");
+  $("sColor").classList.toggle("on", mode === "colour");
+  $("sBoth").classList.toggle("on", mode === "both");
+  $("snote").textContent = (mode === "contours")
+    ? "Lines of equal height, the way a map draws hills and gullies. The spacing "
+      + "is a round number and every fifth line is heavier, so heights can be counted "
+      + "off the picture rather than guessed from a shade. Steep ground where the lines "
+      + "would run closer than a pixel is left blank on purpose."
+    : (mode === "colour")
+      ? "Height by colour alone. The eye reads the shape at once, but a shade is not a "
+        + "number: the scale on the right is the only way back to a value."
+      : "Colour for the shape, contours for the numbers. The busiest of the three, and "
+        + "the most exact.";
+  /* coreDirty on the page means "a new frame is needed", not "rebuild the
+     mesh": the core rebuilds the mesh itself when there is something to
+     rebuild. Changing the shading does not touch the mesh - it is computed in
+     the shader. */
+  coreDirty = true;
+}
+$("sLines").onclick = () => { setShade("contours"); };
+$("sColor").onclick = () => { setShade("colour"); };
+$("sBoth").onclick  = () => { setShade("both"); };
+
+/* CANONICAL VIEWS come from buttons, NOT from snapping.
+
+   Magnetising a free orbit to 0 and 90 degrees is not allowed: a person brings
+   the surface to 88, releases the mouse, and the camera jumps to 90 by itself.
+   In technical graphics that reads not as cleverness but as a loss of control.
+   A button, on the other hand, states the intent plainly.
+
+   A true view from above is exactly 90 degrees, and that is legitimate: the
+   clamp of 89.5 is needed by the free GESTURE, so that the control manifold
+   never reaches the singularity, not by the position of the camera. The
+   azimuth is kept as a hidden heading: the very next orbit will bring the
+   elevation back to 89.5 with the same azimuth. */
+/* Half the field of view along the SHORT side of the frame: fitting goes by
+   it, or the object runs out past the narrow side. A zero canvas size (tab in
+   the background, window minimised, layout not yet done) gives an aspect ratio
+   of one rather than infinity: it used to send the camera thirty-five units
+   away instead of four. */
+function halfFovShort() {
+  const w = view.clientWidth, h = view.clientHeight;
+  const aspect = (w > 0 && h > 0) ? w / h : 1;
+  return aspect >= 1 ? fov / 2 : Math.atan(Math.tan(fov / 2) * aspect);
+}
+
+function setView(name) {
+  const P = focusPoint();
+  const R = cubeRadius();
+  const r = Math.max(1e-6, Math.hypot(P[0] - camX, P[1] - camY, P[2] - camH));
+  const D = { top:    [az, Math.PI / 2],
+              front:  [-Math.PI / 2, 0.0001],
+              side:   [Math.PI, 0.0001],
+              iso:    [-Math.PI / 4, 0.6155] }[name];
+  if (!D) return;
+  /* The distance is taken so that the object fits the frame: the radius of the
+     enclosing sphere divided by the sine of half the field of view along the
+     SHORT side. */
+  const want = (R * 1.25) / Math.max(0.05, Math.sin(halfFovShort()));
+  camFromQ(P, [want, 0, 0], D[0], D[1]);
+  coreDirty = true;
+}
+
+function frameCube() {
+  const P = focusPoint();
+  const R = cubeRadius();
+  camFromQ(P, [(R * 1.25) / Math.max(0.05, Math.sin(halfFovShort())), 0, 0], az, el);
+  coreDirty = true;
+}
+
+/* SHOWING THE PIVOT DURING AN ORBIT. While the object turns, the eye looks for
+   what exactly it turns around; without a marker that has to be guessed from
+   the motion. The marker lives only within the gesture and only in the cube -
+   on the infinite plane there is no persistent pivot. */
+let pivotDot = null;
+function showPivot(on) {
+  if (!pivotDot) {
+    pivotDot = document.createElement("div");
+    pivotDot.id = "pivotdot";
+    document.body.appendChild(pivotDot);
+  }
+  if (!on || drawIn !== "cube") { pivotDot.className = ""; return; }
+  const P = focusPoint();
+  const v = [P[0] - camX, P[1] - camY, P[2] - camH];
+  const L = Math.hypot(v[0], v[1], v[2]) || 1;
+  const sc = dirToScreen([v[0] / L, v[1] / L, v[2] / L], az, el);
+  if (!sc) { pivotDot.className = ""; return; }   // pivot behind - no marker
+  const r = view.getBoundingClientRect();
+  pivotDot.style.left = (r.left + (sc[0] * 0.5 + 0.5) * r.width) + "px";
+  pivotDot.style.top = (r.top + (0.5 - sc[1] * 0.5) * r.height) + "px";
+  pivotDot.className = "on";
+}
+
+$("vTop").onclick = () => setView("top");
+$("vFront").onclick = () => setView("front");
+$("vSide").onclick = () => setView("side");
+$("vIso").onclick = () => setView("iso");
+$("vFit").onclick = () => frameCube();
+
+$("dCube").onclick = () => { setDrawIn("cube"); };
+$("dPlane").onclick = () => { setDrawIn("plane"); };
+
+/* The initial mode is set ONCE, here. This call used to sit INSIDE the frame
+   fetch and fired on every frame: a pressed mode button held until the first
+   movement of the mouse and then went back. The defect was neither in the
+   button nor in the handler - both were sound - but in the state being
+   rewritten by someone who knows nothing about the mode. */
+setDrawIn("cube");
+setShade("contours");
+/* The default gesture is taken FROM THE MODE rather than nailed down. There
+   used to be setMode("turn") here, and the cube opened with a turn on the spot
+   - a gesture that, on a bounded object, only takes it out of the frame. */
+setMode(mouseCube);
+
+/* ---------- THE VIEWED DOMAIN ----------------------------------------------
+   The plane is infinite, and as much of it is visible as the view takes in. So
+   what is computed is NOT the size of the sheet to fit the frame but the
+   reverse: four rays through the corners of the frame cross the plane, and the
+   rectangle that results is what the formula is computed over. The edge of the
+   sheet is never visible, because there is no edge.
+
+   Half a frame at distance D subtends tan(fov/2). On the plane, across the
+   line of sight that is the same multiplied by the aspect ratio, and ALONG the
+   line of sight it is divided by sin(el): the plane is tilted to the ray and
+   stretches into the distance. At the horizon sin(el) tends to zero and the
+   domain runs off to infinity - so the stretch is bounded.
+
+   The rectangle is turned about the vertical by the azimuth, while the domain
+   is given along the x and y axes, so its bounding rectangle is taken. */
+
+const HORIZON = 8;   // how many times the distance may stretch
+
+/* The elevation changes AT A CONSTANT CAMERA HEIGHT.
+
+   The camera is given as an orbit around a point on the plane, and its height
+   equals dist * sin(el). Tilt the view down and the height fell by itself, and
+   it looked as if the camera were diving towards the surface. It was diving.
+
+   Now, when the elevation changes, the distance is recomputed so that the
+   product stays the same: look lower, look farther, but do not descend. At the
+   horizon the sine tends to zero and the distance would run off to infinity,
+   so it is bounded. */
+const MIN_SIN = 1 / HORIZON;
+
+
+
+
+const DOM = ["x0", "x1", "y0", "y1"];
+
+/* The domain lives IN NUMBERS, and the fields are only its display.
+   WHY. At first the fields themselves were the state, and after every move it
+   went through rounding for display. The ends of an interval were then rounded
+   to a different number of digits - the precision was chosen by magnitude, and
+   for -0.4657 and 1.5343 it differs - and the width of the domain slowly
+   drifted under plain dragging. A measurement caught it at once: "width
+   preserved: no". A display has no right to spoil what it displays. */
+let dom = [-1, 1, -1, 1];
+
+/* The DECLARED domain, kept apart from the readout.
+
+   In height mode dom is a READOUT: the core works the domain out from the view
+   and returns it, and the page puts it into the fields. But the same dom went
+   into the request, so the page was declaring to the core, as a domain, what
+   the core had itself computed. The reference scale comes from that domain,
+   the thickness of the slab from the scale, and the domain from the thickness.
+   The loop closed through the page.
+
+   It was caught like this: the formula was wrapped in brackets, changing
+   nothing mathematically - and the plane turned into a narrow cone. A change
+   of formula recomputes the scale, and there was nowhere left to take it from
+   but the inflated domain. Measured: 25.2 -> 36.4 -> 41.7 units over three
+   changes of formula in a row.
+
+   Now the declared domain is changed only by A PERSON and by choosing a
+   sample. */
+let declDom = [-1, 1, -1, 1];
+
+
+const fmtDom = v => {
+  const a = Math.abs(v);
+  if (a < 1e-12) return "0";
+  const d = a < 0.01 ? 6 : a < 1 ? 4 : a < 100 ? 3 : 2;
+  return String(+v.toFixed(d));
+};
+const domainNow = () => dom.slice();
+
+function showDomain() {
+  DOM.forEach((id, i) => { $(id).value = fmtDom(dom[i]); });
+}
+
+function setDomain(x0, x1, y0, y1) {
+  dom = [x0, x1, y0, y1];
+  declDom = [x0, x1, y0, y1];      /* a PERSON or a sample: theirs to declare */
+  /* The point of interest is RESET together with the domain. A person set it
+     by double-clicking THE PICTURE; the domain changed, so the picture
+     changed, and holding on to the old place means turning around something
+     that is no longer drawn. Measured: when the domain moved to 10..12 the
+     focus stayed at 0.7, that is, outside it. */
+  cubeFocus = null;
+  showDomain();
+  coreDirty = true;
+}
+
+/* The other way round: a person typed a number by hand, and that is the
+   truth. */
+function readDomain() {
+  const v = DOM.map(id => parseFloat($(id).value));
+  if (!v.every(Number.isFinite)) return;
+  /* With a camera as a standing point the domain is a CONSEQUENCE of the view,
+     and it cannot be assigned directly: the core will recompute it from the
+     camera anyway and what was typed would quietly vanish. The hint meanwhile
+     promises "type exact numbers when you need them", and a promise has to be
+     kept: what is typed is taken to mean "show me this domain", and the camera
+     is placed to suit it. */
+  if (drawIn === "plane") {
+    declDom = v;                   /* typed by hand, so declared */
+    frameDomain(v[0], v[1], v[2], v[3]);
+    return;
+  }
+  dom = v;
+  declDom = v;
+  coreDirty = true;
+}
+
+/* Zooming around the CENTRE of the domain. k > 1 widens the view. */
+/* k is strictly reversible: 1.12 and 1/1.12, not 1.12 and 0.88. The first
+   attempt took 1 +- 0.12, and the wheel there and back returned not 2.000 but
+   1.943 - the domain quietly shrank with every rocking. */
+function zoomDomain(k) {
+  /* Widen or shrink THE DOMAIN itself. On the infinite plane there is no
+     domain as a declared value, so there this means the same as the wheel. */
+  if (drawIn === "plane") {
+    stepHeight(k < 1 ? 1 : -1);
+    coreDirty = true;
+    return;
+  }
+  const [x0, x1, y0, y1] = domainNow();
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  let hx = (x1 - x0) / 2 * k, hy = (y1 - y0) / 2 * k;
+  // The domain is not allowed to degenerate into a point or to swell to
+  // infinity: either one breaks the labels and the fitting of the mesh.
+  const h = Math.max(Math.abs(hx), Math.abs(hy));
+  if (h < 1e-6 || h > 1e6) return;
+  setDomain(cx - hx, cx + hx, cy - hy, cy + hy);
+}
+
+/* Moving the domain ACROSS THE xy PLANE, so that the surface FOLLOWS THE HAND.
+
+   It is derived rather than fitted by trying signs. Take the unit vector e1 -
+   "right" for the camera - and the unit vector e2, its direction in plan. They
+   are orthogonal:
+
+     e1 = (-sin az,  cos az)      e2 = (cos az, sin az)
+
+   The screen "up", laid on the plane, equals -sin(el) * e2. So a displacement
+   d in the plane gives, on the screen,
+
+     horizontally   d . e1
+     vertically     sin(el) * (d . e2)          (screen y grows downwards)
+
+   From that the inverse problem is solved at once: d.e1 = dx,
+   d.e2 = dy / sin(el).
+
+   TWO CONSEQUENCES, both caught in use.
+
+   The first: the divisor sin(el) changes sign with the elevation. Without it,
+   seen FROM BELOW the plot moved against the hand while from above it followed
+   it; the horizontal was correct all the while, which pointed at this one
+   line.
+
+   The second: for a shallow camera sin(el) tends to zero - the plane is seen
+   edge on, and no movement WITHIN it moves the picture vertically in the
+   frame. That is not an error but a degeneracy of the problem; the divisor is
+   bounded, or near the horizon one flick of the wrist would fly off to
+   infinity. */
+function panDomain(dxPx, dyPx) {
+  /* Move THE DOMAIN itself, not the view. In the cube this is the second
+     model, under Ctrl: not "I look at another place" but "I compute the
+     function at another place".
+
+     The measure comes FROM THE SAME geometry as the camera move - there is one
+     camera now, so there is one measure. There used to be two, and the second
+     worked its step out through the box and dist, which a point camera does
+     not have at all.
+
+     The sign is the opposite of the camera move: moving the domain right is
+     the same as taking the camera left. */
+  const [x0, x1, y0, y1] = domainNow();
+  const se = Math.sin(el);
+  if (Math.abs(se) < 1e-6) return;
+  const d = Math.abs(camH / se);
+  const t = Math.tan(fov / 2) * d;
+  const aspect = Math.max(0.05, view.clientWidth / Math.max(1, view.clientHeight));
+  const uAcross = 2 * t * aspect / Math.max(1, view.clientWidth);
+  const uAlong = 2 * t / Math.abs(se) / Math.max(1, view.clientHeight);
+  const a1 = dxPx * uAcross;
+  const a2 = dyPx * uAlong * (se < 0 ? -1 : 1);
+  const mx = -(-Math.sin(az) * a1 + Math.cos(az) * a2);
+  const my = -( Math.cos(az) * a1 + Math.sin(az) * a2);
+  setDomain(x0 + mx, x1 + mx, y0 + my, y1 + my);
+}
+
+const HOME_DOM = DOM.map(id => +$(id).value);
+dom = HOME_DOM.slice();
+
+/* The mode goes here, once the domain exists. */
+setDrawIn(drawIn);
+if (drawIn === "plane") frameDomain.apply(null, HOME_DOM);
+
+/* The view reset is DIFFERENT in the two modes, because "home" is different
+   for them. On the plane a person stands on the surface, and home is a
+   standing point with a height taken from the size of the domain. In the cube
+   they look at an object from outside, and home is the box fitted into the
+   frame.
+
+   While the reset was one for both, in the cube it set the plane's standing
+   point and the box went off past the bottom edge: measured, its centre
+   projected to -1.267 against a visible band from -1 to 1, and only the top
+   edge fell inside. */
+function resetView() {
+  az = HOME.az; el = HOME.el; fov = HOME.fov;
+  setDomain.apply(null, HOME_DOM);
+  if (drawIn === "cube") frameCube();
+  else frameDomain.apply(null, HOME_DOM);
+  $("mo").textContent = "0.00, 0.00";
+  coreDirty = true;
+}
+$("reset").onclick = resetView;
+/* THE DOUBLE CLICK. In the cube it sets the point of interest and does NOT
+   reset the view.
+
+   The camera does not move by a hair while it happens - and that is the value:
+   swapping the pivot changes nothing on the screen by itself, there is no
+   jerk, and the next orbit already goes around the chosen detail. First you
+   look at the whole object, then you take a local peak and study around it.
+
+   The view reset has not gone anywhere: the Reset button and the R key. On the
+   infinite plane there is no point of interest at all, and there a double
+   click still resets. */
+view.addEventListener("dblclick", e => {
+  if (drawIn !== "cube") { resetView(); return; }
+  const sc = screenOf(e);
+  const hit = groundAt(sc[0], sc[1]);
+  if (!hit) { flash("Nothing there to focus on"); return; }
+  /* The point is clamped to the declared domain: a focus past its edge would
+     mean turning around something that is not drawn. */
+  const x = Math.max(Math.min(declDom[0], declDom[1]), Math.min(Math.max(declDom[0], declDom[1]), hit[0]));
+  const y = Math.max(Math.min(declDom[2], declDom[3]), Math.min(Math.max(declDom[2], declDom[3]), hit[1]));
+  cubeFocus = [x, y, 0];
+  flash("Focus set - orbit now turns around it");
+  coreDirty = true;
+});
+
+
+/* Move or turn is decided ON EVERY MOVEMENT rather than once on the press:
+   Shift is often pressed after the drag has already started, and a mode frozen
+   at the moment of the press does not hear such a person. */
+function wantPan(e) {
+  return mouseDoes === "move" || e.shiftKey
+      || (e.buttons & 2) !== 0 || (e.buttons & 4) !== 0
+      || drag && (drag.btn === 2 || drag.btn === 1);
+}
+
+/* The orbit: the button position, or Alt for the moment - as in any 3D editor.
+   Moving the view is senior: it overrode the turn before as well. */
+function wantOrbit(e) {
+  return !wantPan(e) && (mouseDoes === "orbit" || e.altKey);
+}
+
+view.addEventListener("contextmenu", e => e.preventDefault());
+
+function screenOf(e) {
+  const r = view.getBoundingClientRect();
+  return [2 * (e.clientX - r.left) / Math.max(1, r.width) - 1,
+          1 - 2 * (e.clientY - r.top) / Math.max(1, r.height)];
+}
+
+view.addEventListener("pointerdown", e => {
+  drag = { x:e.clientX, y:e.clientY, btn:e.button };
+  /* The grab point: the world direction under the cursor at the moment of the
+     press. From then on the whole job is to keep it under the cursor rather
+     than to accumulate an angle along the way. */
+  const sc = screenOf(e);
+  drag.grab = rayWorld(sc[0], sc[1], az, el);
+  /* The pivot and the radius are taken ONCE, on the press, and are not
+     recomputed afterwards: recompute them on every movement and the pivot
+     would travel after the camera, turning the orbit into a slide. The angles
+     are remembered too: they are measured from the press rather than
+     accumulated along the way. */
+  drag.az0 = az;
+  drag.el0 = el;
+  drag.x0 = e.clientX;
+  drag.y0 = e.clientY;
+  if (drawIn === "cube") {
+    /* THE PIVOT BEHIND THE CAMERA. Mathematically the formula works there too,
+       but that is no longer an orbit around an object: a person would be
+       turning around something they cannot see. In that case ONLY the pivot is
+       redefined and the camera stays perfectly still - the substitution moves
+       nothing on the screen by itself, and there will be no jerk of the frame.
+       That is better than an automatic "fit the cube": the latter would move
+       the camera, which nobody asked for. */
+    let P = focusPoint();
+    let q = camQ(P);
+    const R = cubeRadius();
+    const qFront = Math.max(0.002, 1e-6 * R);
+    if (!(q[0] > qFront)) {
+      const hit = groundAt(sc[0], sc[1]) || groundAt(0, 0);
+      if (hit) {
+        const q2 = camQ(hit);
+        if (q2[0] > qFront) { P = hit; q = q2; }
+      }
+    }
+    if (!(q[0] > qFront)) { drag.noOrbit = true; }
+    drag.pivot = P;
+    drag.q = q;
+    drag.radius = Math.hypot(q[0], q[1], q[2]);
+  } else {
+    /* The plane: as it was, and the baseline guards that. The side is computed
+       from the sign of the HEIGHT, that is, from the side of the base plane,
+       and not from the sign of the elevation - that way what is actually
+       compensated is named. The ground is visible only when the signs agree,
+       so at visible views the value is the same. */
+    const ob = orbitPivot();
+    drag.pivot = ob.p;
+    drag.radius = ob.r;
+    drag.planeSide = camH < 0 ? -1 : 1;
+  }
+  try { view.setPointerCapture(e.pointerId); } catch (_) {}
+  view.classList.add("busy");
+  document.body.classList.add("dragging");
+  showMode(wantPan(e));
+});
+
+view.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  const pan = wantPan(e);
+  const orbit = wantOrbit(e);
+  showMode(pan ? "move" : orbit ? "orbit" : "turn");
+  if (orbit) {
+    orbitDrag(e.clientX - drag.x0, e.clientY - drag.y0);
+    showPivot(true);
+    drag.x = e.clientX; drag.y = e.clientY;
+    coreDirty = true;
+    return;
+  }
+  /* One set of gestures for both modes. Ctrl swaps move for turn and back: one
+     of them is wanted most of the time and the other now and then, briefly.
+
+     This used to branch on the kind of camera, and for the orbit one "turn on
+     the spot" could not be expressed at all: Turn and Orbit in the cube did
+     the same thing, and the button lied. Measured on the live page - both
+     changed az, el and dist. */
+  if (pan !== e.ctrlKey) nav_pan(dx, dy);
+  else if (drag.grab) {
+    const sc = screenOf(e);
+    turnTo(drag.grab, sc[0], sc[1]);
+  } else {
+    turnFallback(dx, dy);
+  }
+  drag.x = e.clientX; drag.y = e.clientY;
+  coreDirty = true;
+});
+
+const stopDrag = () => {
+  showPivot(false);
+  if (modeTip) modeTip.className = "";
+  drag = null;
+  view.classList.remove("busy");
+  document.body.classList.remove("dragging");
+  coreDirty = true;
+};
+view.addEventListener("pointerup", stopDrag);
+view.addEventListener("pointercancel", stopDrag);
+
+view.addEventListener("wheel", e => {
+  e.preventDefault();
+
+  /* With a standing point the wheel changes the HEIGHT, and only the height.
+
+     There used to be a single branch here, on navDomain. In standing-point
+     mode navDomain is false, and the wheel went into the branch for orbit
+     DISTANCE, which that camera does not have at all: the height did not
+     change, the picture did not change, and it looked like "nothing
+     happened". The check at the time called zoomDomain directly and so noticed
+     nothing - the function was checked, not the path the mouse takes. */
+  wheelStep(e.deltaY > 0, e.ctrlKey);
+}, { passive:false });
+
+/* The wheel step is taken out of the handler into a SEPARATE function for the
+   same reason as the mouse gestures: a check has to CALL it rather than
+   rewrite it for itself. While it was rewriting, a change of sign went
+   unnoticed by it.
+
+   down means the wheel towards you. The contract is one for all three modes:
+   AWAY FROM YOU means come closer, that is, the object on the screen grows.
+   What exactly changes while it happens differs between the modes: the height
+   of the camera, the width of the domain, the distance to the box. */
+/* THE WHEEL IN THE CUBE. The camera slides along the camera-focus line, and
+   that is better than an ordinary dolly along the central ray.
+
+   Take q in the camera frame and multiply it whole: q' = k*q. Then
+   C' = P - M q' = P + k(C - P), that is, motion strictly along the line to the
+   focus. And more importantly, the ratios of the transverse components to the
+   longitudinal one do not change, so the screen place of the focus does not
+   move AT ALL, even when the focus is not in the middle of the frame.
+
+   A step of 2^(1/8) is about nine per cent per click: between the gentle
+   three.js and the brisk VTK. The limits are expressed in fractions of the
+   object itself rather than in units of the problem: from a thousandth of its
+   radius to a thousand radii. That is six orders of magnitude - more than
+   enough for a viewer, and it allows getting inside the object. */
+function cubeDolly(down) {
+  const P = focusPoint();
+  const q = camQ(P);
+  const r = Math.hypot(q[0], q[1], q[2]);
+  if (!(r > 1e-12)) return;
+  const R = cubeRadius();
+  const k = Math.pow(2, (down ? 1 : -1) / 8);
+  const want = Math.max(1e-3 * R, Math.min(1e3 * R, r * k));
+  const f = want / r;
+  camFromQ(P, [q[0] * f, q[1] * f, q[2] * f], az, el);
+  coreDirty = true;
+}
+
+function wheelStep(down, ctrl) {
+  /* Ctrl gives the SECOND model: normally the wheel brings the camera closer,
+     while with Ctrl in the cube it widens THE DOMAIN itself - that is, it
+     shows more of the function rather than looking closer. On the infinite
+     plane there is no second model: there the domain is a consequence of the
+     view anyway. */
+  if (ctrl && drawIn === "cube") {
+    zoomDomain(down ? 1.12 : 1 / 1.12);
+    return;
+  }
+  if (drawIn === "cube") { cubeDolly(down); return; }
+  stepHeight(down ? -1 : 1);
+  coreDirty = true;
+}
+
+addEventListener("keydown", e => {
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+  /* While the about panel is open the camera keys stay silent: otherwise the
+     surface would travel behind the reader's back and, on closing the panel,
+     they would find a view that is not theirs. Escape is the only live key
+     here. */
+  if (aboutShown() || galShown()) {
+    if (e.key === "Escape") {
+      if (aboutShown()) showAbout(false); else showGallery(false);
+      e.preventDefault();
+    }
+    return;
+  }
+  const nudge = e.shiftKey ? 60 : 15;   // in pixels, as with dragging
+  let hit = true;
+  switch (e.key) {
+    /* Cycling through the modes. There used to be setNav(!navDomain) here -
+       a boolean argument when there had come to be three modes, and the call
+       quietly reset the mode to a nameless one. The first call on load broke
+       in exactly the same way. */
+    case "n": case "N": setDrawIn(drawIn === "cube" ? "plane" : "cube"); break;
+    /* The arrows and plus and minus go the same ways as the mouse: with a
+       standing point THE TARGET moves and THE HEIGHT changes, not the
+       domain. */
+    case "ArrowLeft":  nav_pan(-nudge, 0); break;
+    case "ArrowRight": nav_pan(nudge, 0); break;
+    case "ArrowUp":    nav_pan(0, -nudge); break;
+    case "ArrowDown":  nav_pan(0, nudge); break;
+    case "+": case "=": zoomDomain(1 / 1.12); break;
+    case "-": case "_": zoomDomain(1.12); break;
+    case "0": setDomain.apply(null, HOME_DOM); break;
+    case "r": case "R": resetView(); break;
+    case "p": case "P": {
+      const ring = ["turn", "orbit", "move"];
+      setMode(ring[(ring.indexOf(mouseDoes) + 1) % ring.length]);
+      break;
+    }
+    default: hit = false;
+  }
+  if (!hit) return;
+  e.preventDefault();
+  coreDirty = true;
+});
+
+/* ---------- fields and samples ---------------------------------------------- */
+
+const mark = () => { coreDirty = true; };
+for (const id of ["f","q","bx","by","bz"]) $(id).addEventListener("input", mark);
+for (const id of DOM) $(id).addEventListener("input", readDomain);
+for (const id of ["ax","res","autoz"]) $(id).addEventListener("change", mark);
+$("motion").addEventListener("change", () => { paintMotionNote(); coreDirty = true; });
+$("bfit").onclick = () => {
+  $("bx").value = 1; $("by").value = 1; $("bz").value = 1;
+  mark();
+};
+
+/* Fit Z is a ONE-OFF action. The flag is raised, goes out with the next frame
+   and is cleared immediately: keeping it on would mean recomputing the scale
+   every frame, that is, bringing back exactly the behaviour that was left
+   behind. */
+$("bfitz").onclick = () => { wantFitZ = true; mark(); };
+
+/* The samples are written IN THE LIBRARY'S DIALECT, not in the one C and JS
+   are used to: arctan, arcsin, lg, x mod 2. There is no other dialect here any
+   more. */
+/* THE SAMPLES. One button per formula does not scale: there came to be twenty
+   of them, and twenty buttons in a panel are no longer a choice but a list.
+   The samples are gathered into a gallery, and the gallery shows not names but
+   THE SURFACES THEMSELVES, drawn by the same core. A picture answers the
+   question "what is this", which a name does not.
+
+   Each sample has its own domain and its own box height. The height is not
+   decoration here: the funnel goes down to minus six in the middle, and at the
+   usual height of 0.3 only a well of it is visible. The order of the entries
+   also sets the order of the cells in the sheet of thumbnails - THE SHEET IS
+   BUILT FROM THIS VERY LIST, so they cannot drift apart. */
+/* Columns in the sheet of thumbnails. ONE number for the whole job: both the
+   sheet generator and the cell layout on the page read it. While it stood in
+   two places - in the script and in a CSS rule - nothing stopped them drifting
+   apart. */
+const SAMPLE_COLS = 6;
+
+const SAMPLE_FAMILIES = [
+  ["waves", "waves and interference"],
+  ["relief", "peaks and rings"],
+  ["fields", "fields and lattices"],
+  ["forms", "saddles and bowls"],
+  ["edges", "edges and singularities"]
+];
+
+const SAMPLES = [
+  { n:"ripple",        g:"waves",  z:0.3,  d:[-1,1,-1,1],
+    f:"sin(3*x)*cos(3*y)*exp(-(x*x+y*y))" },
+  { n:"waves",         g:"waves",  z:0.3,  d:[-2,2,-2,2],
+    f:"sin(10*sqrt(x*x+y*y))/(1+5*(x*x+y*y))" },
+  { n:"cosmic ripple", g:"waves",  z:0.3,  d:[-1,1,-1,1],
+    f:"sin(12*sqrt(x**2+y**2))/(1+4*(x**2+y**2))" },
+  { n:"interference",  g:"waves",  z:0.35, d:[-1,1,-1,1],
+    f:"sin(14*sqrt((x-0.4)**2+y**2))+sin(14*sqrt((x+0.4)**2+y**2))" },
+  { n:"pulsar",        g:"waves",  z:0.3,  d:[-1,1,-1,1],
+    f:"sin(18*sqrt(x**2+y**2)+5*arctan2(y,x))/(1+3*sqrt(x**2+y**2))" },
+
+  { n:"volcanic ring", g:"relief", z:0.4,  d:[-1,1,-1,1],
+    f:"exp(-20*(sqrt(x**2+y**2)-0.55)**2)-exp(-30*(x**2+y**2))" },
+  { n:"eight petals",  g:"relief", z:0.35, d:[-1,1,-1,1],
+    f:"exp(-2*(x**2+y**2))*sin(8*arctan2(y,x))" },
+  { n:"dome lattice",  g:"relief", z:0.3,  d:[-1,1,-1,1],
+    f:"cos(6*x)*cos(6*y)/(1+x**2+y**2)" },
+
+  { n:"dunes",         g:"fields", z:0.3,  d:[-1,1,-1,1],
+    f:"sin(8*x+3*sin(5*y))*cos(7*y+2*sin(4*x))" },
+  { n:"crystal",       g:"fields", z:0.3,  d:[-1,1,-1,1],
+    f:"abs(sin(6*x)+sin(6*y))" },
+  { n:"terrace",       g:"fields", z:0.3,  d:[-1,1,-1,1],
+    f:"floor(4*x)/4+floor(4*y)/4" },
+
+  { n:"saddle",        g:"forms",  z:0.3,  d:[-1,1,-1,1],
+    f:"x*x-y*y" },
+  { n:"monkey saddle", g:"forms",  z:0.3,  d:[-1,1,-1,1],
+    f:"x^3-3*x*y*y" },
+  { n:"bowl",          g:"forms",  z:0.3,  d:[-1,1,-1,1],
+    f:"x*x+y*y" },
+
+  { n:"holes",         g:"edges",  z:0.3,  d:[-1,1,-1,1],
+    f:"sqrt(x*x+y*y-0.5)" },
+  { n:"angle",         g:"edges",  z:0.3,  d:[-1,1,-1,1],
+    f:"arctan2(y,x)" },
+  { n:"funnel",        g:"edges",  z:0.12, d:[-1,1,-1,1],
+    f:"-1/sqrt(x**2+y**2+0.03)" },
+  { n:"rift",          g:"edges",  z:0.3,  d:[-1,1,-1,1],
+    f:"sin(5/sqrt(x**2+y**2+0.01))*exp(-2*(x**2+y**2))" }
+];
+/* The comparison goes by the formula WITHOUT spaces: 'x*x-y*y' and
+   'x*x - y*y' are one and the same to a reader, and a different highlight on
+   them would look like a breakage. The domain takes no part in the comparison:
+   people travel across it, and a sample does not become another one for
+   that. */
+const bare = (t) => (t || "").replace(/\s+/g, "");
+
+const COLS = SAMPLE_COLS;
+const galRows = Math.ceil(SAMPLES.length / COLS);
+
+function galShown() {
+  const b = document.getElementById("gallery");
+  return !!b && b.classList.contains("on");
+}
+
+function showGallery(on) {
+  const b = document.getElementById("gallery");
+  if (!b) return;
+  b.classList.toggle("on", on);
+  b.hidden = !on;
+  if (on) { syncPicks(); $("galClose").focus(); }
+}
+
+/* What is chosen NOW is written under the button. Otherwise, having closed the
+   gallery, a person sees only a formula and does not know whether it was a
+   sample. */
+function syncPicks() {
+  const cur = bare($("f").value);
+  let name = "";
+  for (const node of $("galGrid").querySelectorAll(".pick")) {
+    const on = bare(node.dataset.formula) === cur;
+    node.classList.toggle("on", on);
+    node.setAttribute("aria-pressed", on ? "true" : "false");
+    if (on) name = node.dataset.name;
+  }
+  $("picknow").textContent = name
+    ? "Showing " + name + "."
+    : "Your own formula. The gallery has eighteen to start from.";
+}
+
+function applySample(item) {
+  $("f").value = item.f;
+  $("bz").value = String(item.z);
+  if (drawIn === "cube") { bzCube = String(item.z); } else { bzPlane = String(item.z); }
+  setDomain(item.d[0], item.d[1], item.d[2], item.d[3]);
+  /* With a camera as a standing point the domain is a CONSEQUENCE of the view,
+     and setDomain does not command it. Without this line choosing a sample
+     changed nothing: the camera stayed at its old height - thirteen units in
+     one screenshot - and a plot whose whole relief lies within one unit looked
+     like a dot in the middle of a field. */
+  if (drawIn === "plane") frameDomain(item.d[0], item.d[1], item.d[2], item.d[3]);
+  else frameCube();
+  syncPicks();
+  coreDirty = true;
+}
+
+(function buildGallery() {
+  const grid = $("galGrid");
+  if (!grid) return;
+  let first = true;
+  for (const [key, title] of SAMPLE_FAMILIES) {
+    const mine = SAMPLES.filter((it) => it.g === key);
+    if (!mine.length) continue;
+    const head = document.createElement("div");
+    head.className = "fam" + (first ? " first" : "");
+    head.textContent = title;
+    grid.appendChild(head);
+    first = false;
+    for (const item of mine) {
+      const k = SAMPLES.indexOf(item);
+      const node = document.createElement("button");
+      node.type = "button";
+      node.className = "pick";
+      node.dataset.formula = item.f;
+      node.dataset.name = item.n;
+      node.setAttribute("aria-pressed", "false");
+      const shot = document.createElement("span");
+      shot.className = "shot";
+      /* A cell of the sheet. The background size is in cells and the position
+         is in per cent, and the divisor here is the number of cells MINUS one:
+         with six columns the outer ones stand at 0 and 100 per cent, not at 0
+         and 83. */
+      shot.style.backgroundSize = (COLS * 100) + "% " + (galRows * 100) + "%";
+      shot.style.backgroundPosition =
+        (COLS > 1 ? (k % COLS) * 100 / (COLS - 1) : 0) + "% " +
+        (galRows > 1 ? Math.floor(k / COLS) * 100 / (galRows - 1) : 0) + "%";
+      const cap = document.createElement("span");
+      cap.className = "cap";
+      const nm = document.createElement("span");
+      nm.className = "nm";
+      const who = document.createElement("span");
+      who.textContent = item.n;
+      const dm = document.createElement("span");
+      dm.className = "dm";
+      /* The domain is shown only when it is NOT the usual one: writing
+         "-1..1" under every other cell teaches the eye not to read it. */
+      dm.textContent = (item.d[0] === -1 && item.d[1] === 1
+                        && item.d[2] === -1 && item.d[3] === 1)
+        ? "" : item.d[0] + ".." + item.d[1];
+      nm.appendChild(who);
+      nm.appendChild(dm);
+      const fx = document.createElement("span");
+      fx.className = "fx";
+      fx.textContent = item.f;
+      cap.appendChild(nm);
+      cap.appendChild(fx);
+      node.appendChild(shot);
+      node.appendChild(cap);
+      node.onclick = () => { applySample(item); showGallery(false); };
+      grid.appendChild(node);
+    }
+  }
+})();
+
+$("pickBtn").addEventListener("click", () => showGallery(true));
+$("galClose").addEventListener("click", () => showGallery(false));
+$("gallery").addEventListener("pointerdown", (e) => {
+  if (e.target === $("gallery")) showGallery(false);
+});
+
+/* Walking the cells with the arrow keys. Tab walks them by itself - they are
+   buttons - but eighteen cells in three rows are a grid, and a grid is walked
+   with arrows: up and down step by a row rather than one at a time. */
+$("galGrid").addEventListener("keydown", (e) => {
+  const cells = [...$("galGrid").querySelectorAll(".pick")];
+  const at = cells.indexOf(document.activeElement);
+  if (at < 0) return;
+  /* The width of a row comes from a MEASUREMENT rather than from SAMPLE_COLS:
+     on a narrow window the grid puts fewer cells in a row by itself, and a
+     step down has to be counted by what is on the screen rather than by how
+     the sheet was cut. */
+  const top = cells[0].getBoundingClientRect().top;
+  let wide = cells.findIndex((c) => c.getBoundingClientRect().top > top + 2);
+  if (wide < 1) wide = cells.length;
+  const step = { ArrowRight: 1, ArrowLeft: -1,
+                 ArrowDown: wide, ArrowUp: -wide }[e.key];
+  if (step === undefined) return;
+  const to = Math.max(0, Math.min(cells.length - 1, at + step));
+  cells[to].focus();
+  e.preventDefault();
+});
+
+/* Editing the formula by hand clears the highlight by itself: a sample stopped
+   being the current one the moment the text parted from it. */
+$("f").addEventListener("input", syncPicks);
+syncPicks();
+
+/* ---------- the about panel -------------------------------------------------
+
+   Declared as FUNCTIONS rather than as arrows in variables: the key handler
+   stands higher in the text and calls aboutShown on the very first press. A
+   function declaration is hoisted, a let declaration is not, and the call
+   would land in the dead zone. */
+
+function aboutShown() {
+  const b = document.getElementById("about");
+  return !!b && b.classList.contains("on");
+}
+
+function showAbout(on) {
+  const b = document.getElementById("about");
+  if (!b) return;
+  b.classList.toggle("on", on);
+  b.hidden = !on;
+  /* The version comes from the core rather than being written into the
+     markup: the markup would fall behind the built library and lie in
+     silence. */
+  if (on) $("aboutVer").textContent = coreVer || "not loaded";
+  if (on) $("aboutClose").focus();
+}
+
+$("aboutBtn").addEventListener("click", () => showAbout(true));
+$("aboutClose").addEventListener("click", () => showAbout(false));
+/* A click on the backdrop closes it, a click on the card does not. The target
+   of the event is checked rather than the bubbling: otherwise selecting text
+   with the mouse would close the panel. */
+$("about").addEventListener("pointerdown", e => {
+  if (e.target === $("about")) showAbout(false);
+});
+
+/* The first-run hint: it goes away by itself and at the first action. */
+(function () {
+  const box = $("firstrun");
+  if (!box) return;
+  let dead = false;
+  const kill = () => {
+    if (dead) return;
+    dead = true;
+    box.classList.add("gone");
+    setTimeout(() => box.remove(), 800);
+  };
+  setTimeout(kill, 7000);
+  addEventListener("pointerdown", kill, { once:true });
+  addEventListener("keydown", kill, { once:true });
+})();
+
+paintMotionNote();
+/* The first frame shows the object IN FULL. The initial camX, camY and camH
+   are the standing point of the plane, and in the cube, which is the default,
+   the box is not visible from there: measured, its centre projected to -1.267
+   against a visible band from -1 to 1.
+
+   The framing happens RIGHT HERE, not in the first frame. The script sits at
+   the end of the body, the sizes of the view area are already computed, and
+   reading clientWidth forces them anyway. Framing inside a frame is not
+   allowed: a hidden tab is given no frames at all, and the frame pump would
+   not start along with the framing. */
+if (drawIn === "cube") frameCube();
+coreHealth().then(() => { coreDirty = true; });
+requestAnimationFrame(pump);
+</script>

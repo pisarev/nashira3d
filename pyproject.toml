@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nashira3d"
+version = "0.2.0.dev0"
+description = "3D surface plots straight from formulas, drawn on the GPU without a window"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Yuriy Pisarev", email = "ypisareff@outlook.com" }]
+dependencies = ["cffi>=1.15"]
+
+# The name nashira3d will not be found by search - these words have to do it.
+keywords = [
+    "3d", "plot", "plotting", "surface", "formula", "expression",
+    "visualization", "opengl", "graph", "chart", "headless", "offscreen",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+]
+
+# MIT, like the other four repositories in the family. Chosen deliberately:
+# the scientific Python world runs almost entirely on BSD and MIT, and a
+# copyleft licence would turn part of the audience away before they had looked
+# at what the library can do.
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.optional-dependencies]
+numpy = ["numpy>=1.20"]
+
+[project.urls]
+Homepage = "https://github.com/pisarev/nashira3d"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+packages = ["nashira3d"]
+
+[tool.setuptools.package-data]
+nashira3d = ["*.dll", "*.so", "*.dylib"]
