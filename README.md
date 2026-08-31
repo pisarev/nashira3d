@@ -190,10 +190,21 @@ Maps leave both blank too.
 
 ## Holes are holes
 
-Where the formula has no finite value - `1/x` at zero, `ln` of a negative
-number - the cell is **left out**. The surface gets a hole instead of a slope
-that does not exist. Pulling such a point to the edge of the box would draw a
-lie, and a plot that hides a singularity is worse than one that shows a gap.
+Where the formula has no finite value at a node - `ln` of a negative number,
+`sqrt` of one - the cell is **left out**. The surface gets a hole instead of a
+slope that does not exist. Pulling such a point to the edge of the box would
+draw a lie, and a plot that hides a singularity is worse than one that shows a
+gap. On `ln(x)` over a square domain about the origin about half the cells go,
+which is what the domain says they should: half of it has `x` below zero. The
+count is reported rather than guessed at - the browser demo prints it under the
+plot, and 9,180 cells of 18,225 went on the run this line was written from.
+
+A singularity that falls *between* nodes is a different matter, and the honest
+answer is that it is not seen. `1/x` over `(-2, 2)` never lands on zero - the
+grid is even and the node count works out so that no node sits there - so
+nothing is undefined and nothing is left out. What you get is a very steep
+slope, not a gap. The library reports what it found at the nodes; it does not
+go looking between them.
 
 ## Formula errors are reported immediately
 
