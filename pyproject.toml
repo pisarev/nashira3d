@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nashira3d"
-version = "0.2.0.dev0"
+version = "0.2.0"
 description = "3D surface plots straight from formulas, drawn on the GPU without a window"
 readme = "README.md"
 requires-python = ">=3.9"

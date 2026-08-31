@@ -44,10 +44,14 @@ function BuildSurfaceFrom(const Formula: AnsiString; const Xs, Ys: array of Doub
 implementation
 
 uses
-  SysUtils, Math, Parser, ParseJit.Parser;
+  SysUtils, Math, Parser,
+  {$IFDEF NSH_NO_JIT}nsh_nojit{$ELSE}ParseJit.Parser{$ENDIF};
+
+type
+  TEngineParser = {$IFDEF NSH_NO_JIT}TNoJitParser{$ELSE}TJitParser{$ENDIF};
 
 var
-  GParser : TJitParser = nil;
+  GParser : TEngineParser = nil;
   GVarX   : Double = 0;
   GVarY   : Double = 0;
 
@@ -66,11 +70,11 @@ begin
   end;
 end;
 
-function Engine: TJitParser;
+function Engine: TEngineParser;
 begin
   if GParser = nil then
   begin
-    GParser := TJitParser.Create(nil);
+    GParser := TEngineParser.Create(nil);
     GParser.AddVariable('x', GVarX);
     GParser.AddVariable('y', GVarY);
   end;

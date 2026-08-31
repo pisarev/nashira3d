@@ -23,7 +23,7 @@ const
   NSH_ERR_MEMORY      = 4;
   NSH_ERR_STATE       = 5;
   NSH_ERR_UNSUPPORTED = 6;
-  NSH_VERSION = '0.2.0-dev';
+  NSH_VERSION = '0.2.0';
 
 type
   PSession = ^TSession;
@@ -618,7 +618,6 @@ var
   AutoNeed, AutoRatio : Double;
   DoFit, FrozeNow, Again : Boolean;
   SideN : LongInt;
-  FarD : Double;
   Pass : LongInt;
 begin
   try
@@ -772,16 +771,7 @@ begin
     until (not Again) or (Pass >= 2);
     RndObstacles(S^.Obst);
     RndShading(S^.Shade, S^.CStep);
-    if S^.RegionView then
-    begin
-      SceneSlab(S, SlabZ0, SlabMin, SlabMax);
-      Half := Max((S^.X1 - S^.X0) / 2, (S^.Y1 - S^.Y0) / 2);
-      if Half < 1E-300 then Half := 1;
-      FarD := CamFar(SessionCam(S), SlabMin, SlabMax, S^.MaxExtent) / Half;
-      RndFade(0.40 * FarD, FarD);
-    end
-    else
-      RndFade(0, 0);
+    RndDissolve(S^.RegionView);
     DCam.Fov := S^.Fov;
     BX := S^.BoxX;
     BY := S^.BoxY;

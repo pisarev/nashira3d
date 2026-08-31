@@ -45,8 +45,13 @@ try:
     r = subprocess.run(["node", os.path.join(HERE, "plane_baseline.js")],
                        capture_output=True, text=True, encoding="utf-8", timeout=120)
 except FileNotFoundError:
-    print("     Node was not found - the plane was NOT CHECKED")
-    sys.exit(0)
+    # NOT CHECKED is a third outcome: neither a failure nor a pass. To leave
+    # with a zero is to pass an empty run off as a completed one: the battery
+    # counts zero checks and zero failures, and that reads as success. To
+    # leave with a one is to cry breakage where there is merely no tool
+    # available. Code 2 tells the truth.
+    print("   NOT CHECKED: the plane - no node")
+    sys.exit(2)
 
 line = [l for l in (r.stdout or "").strip().splitlines() if l.startswith("{")]
 if r.returncode != 0 or not line:

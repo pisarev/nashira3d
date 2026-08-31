@@ -386,6 +386,14 @@ with open(tmp, "w", encoding="utf-8") as f:
 try:
     r = subprocess.run(["node", tmp], capture_output=True, text=True,
                        encoding="utf-8", timeout=60)
+except FileNotFoundError:
+    # NOT CHECKED is a third outcome: neither a failure nor a pass. To leave
+    # with a zero is to pass an empty run off as a completed one: the battery
+    # counts zero checks and zero failures, and that reads as success. To
+    # leave with a one is to cry breakage where there is merely no tool
+    # available. Code 2 tells the truth.
+    print("   NOT CHECKED: the camera of the page - no node")
+    sys.exit(2)
 finally:
     os.remove(tmp)
 

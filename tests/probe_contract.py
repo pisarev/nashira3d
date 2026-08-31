@@ -85,9 +85,20 @@ check("the header has as many fields as the cdef", len(c_members), len(h_members
 check("the order and the arguments match exactly", c_members, h_members)
 check("more than zero fields - the parse did not miss", len(h_members) > 5, True)
 
-# --- error codes
-enum = header[header.index("typedef enum {"):]
-enum = enum[:enum.index("} nsh_status;")]
+# --- the type of the failure code, and the codes themselves
+#
+# nsh_status is declared as a typedef of int32_t and NOT as a C enum. That is
+# not cosmetic: the width of an enum is chosen by the consumer's compiler, and
+# this whole interface exists to be a binary seam between builds that never
+# met. The check guards the declaration itself - let it go back to an enum and
+# the contract starts depending on somebody else's compiler again.
+check("nsh_status is declared as int32_t and not as an enum",
+      bool(re.search(r"typedef\s+int32_t\s+nsh_status\s*;", header)), True)
+check("the failure code has no enum type of its own",
+      "} nsh_status;" in header, False)
+
+enum = header[header.index("typedef int32_t nsh_status;"):]
+enum = enum[:enum.index("};")]
 h_codes = {}
 for name, value in re.findall(r"(NSH_\w+)\s*=\s*(\d+)", enum):
     h_codes[name.replace("NSH_", "")] = int(value)

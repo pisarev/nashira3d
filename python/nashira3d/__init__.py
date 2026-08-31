@@ -318,8 +318,10 @@ class Session:
         The only difference between the two ways of drawing. In a declared
         domain a person set the edges - that is a cube, and the edges show. In
         a computed one the domain follows from the point of view - that is an
-        endless plane, sampling follows the density on screen, and the far edge
-        dissolves into the background.
+        endless plane, its sampling lines are placed by the density on screen,
+        and the far edge dissolves into the background: the dissolve is carried
+        all the way to the background exactly at the edge of the mesh, which is
+        why that edge never shows in the frame.
 
         The computation and the drawing are the same either way."""
         return self._region

@@ -41,7 +41,7 @@ procedure RndObstacles(const Rects: array of LongInt);
 
 procedure RndShading(Mode: LongInt; Step: Double);
 
-procedure RndFade(D0, D1: Double);
+procedure RndDissolve(On: Boolean);
 
 function  RndDraw(W, H: LongInt; const Cam: TDrawCam;
   PanX, PanY, BoxX, BoxY, BoxZ, Fill, LightAz, LightEl: Double; Fit, Grid, Axes: Boolean;
@@ -110,7 +110,7 @@ const
     'uniform vec3 uScale;' + NL +
     'out vec4 fColor;' + NL +
     'uniform vec2 uViewport;' + NL +
-    'uniform vec2 uFade;' + NL +
+    'uniform vec2 uMeshHalf;' + NL +
     RAMP_SRC +
     CONT_SRC +
     BG_SRC +
@@ -134,12 +134,22 @@ const
     '    float f = contNum(vH);' + NL +
     '    col = contInk(col, f, fwidth(f));' + NL +
     '  }' + NL +
-    '  if (uFade.y > 0.0) {' + NL +
-    '    float q = 1.0 / max(distance(uEye, vPos), 1E-6);' + NL +
-    '    float q0 = 1.0 / max(uFade.x, 1E-6);' + NL +
-    '    float q1 = 1.0 / uFade.y;' + NL +
-    '    float k = clamp((q0 - q) / max(q0 - q1, 1E-6), 0.0, 1.0);' + NL +
-    '    col = mix(col, bgAt(gl_FragCoord.xy / uViewport), k * k);' + NL +
+    '  if (uMeshHalf.y > 0.0) {' + NL +
+    '    vec2 o = uEye.xy;' + NL +
+    '    vec2 dir = vPos.xy - o;' + NL +
+    '    float t = 1.0E30;' + NL +
+    '    if (abs(dir.x) > 1.0E-9) {' + NL +
+    '      float bx = (dir.x > 0.0) ? uMeshHalf.x : -uMeshHalf.x;' + NL +
+    '      t = min(t, (bx - o.x) / dir.x);' + NL +
+    '    }' + NL +
+    '    if (abs(dir.y) > 1.0E-9) {' + NL +
+    '      float by = (dir.y > 0.0) ? uMeshHalf.y : -uMeshHalf.y;' + NL +
+    '      t = min(t, (by - o.y) / dir.y);' + NL +
+    '    }' + NL +
+    '    float r = max(t - 1.0, 0.0);' + NL +
+    '    float u = clamp(1.0 - r / 1.5, 0.0, 1.0);' + NL +
+    '    float k = u * u * (3.0 - 2.0 * u);' + NL +
+    '    col = mix(col, bgAt(gl_FragCoord.xy / uViewport), k);' + NL +
     '  }' + NL +
     '  fColor = vec4(col, 1.0);' + NL +
     '}' + NL;
@@ -174,7 +184,7 @@ var
   FLocShade : GLint = -1;
   FLocCont  : GLint = -1;
   FLocVp    : GLint = -1;
-  FLocFade  : GLint = -1;
+  FLocMeshH : GLint = -1;
   FBarShade : GLint = -1;
   FBarCont  : GLint = -1;
   FBgProg : GLuint = 0;
@@ -193,8 +203,7 @@ var
   FZspan : Double = 1;
   FZmid  : Double = 0;
   FShade : LongInt = SHADE_CONTOURS;
-  FFade0 : Double = 0;
-  FFade1 : Double = 0;
+  FDissolve : Boolean = False;
   FCStep : Double = 0;
   FMeshX  : array of Single;
   FMeshY  : array of Single;
@@ -371,7 +380,7 @@ begin
   FLocShade := glGetUniformLocation(FProg, 'uShade');
   FLocCont  := glGetUniformLocation(FProg, 'uCont');
   FLocVp    := glGetUniformLocation(FProg, 'uViewport');
-  FLocFade  := glGetUniformLocation(FProg, 'uFade');
+  FLocMeshH := glGetUniformLocation(FProg, 'uMeshHalf');
   VS := Compile(GL_VERTEX_SHADER, LINE_VERT_SRC, Error);
   if VS = 0 then Exit(False);
   FS := Compile(GL_FRAGMENT_SHADER, LINE_FRAG_SRC, Error);
@@ -654,17 +663,9 @@ var
   FMajorVbo  : GLuint = 0;
   FMajorVao  : GLuint = 0;
 
-procedure RndFade(D0, D1: Double);
+procedure RndDissolve(On: Boolean);
 begin
-  if (D1 > 0) and (D1 < 1E30) and (D1 = D1) and (D0 >= 0) and (D0 < D1) then
-  begin
-    FFade0 := D0;
-    FFade1 := D1;
-  end
-  else begin
-    FFade0 := 0;
-    FFade1 := 0;
-  end;
+  FDissolve := On;
 end;
 
 procedure RndShading(Mode: LongInt; Step: Double);
@@ -1456,7 +1457,12 @@ begin
   glUniform3f(FLocNrmSc, FHalf / BoxX, FHalf / BoxY, FZspan / (2 * BoxZ));
   glUniform1i(FLocShade, FShade);
   glUniform2f(FLocVp, W, H);
-  glUniform2f(FLocFade, FFade0, FFade1);
+  if FDissolve then
+    glUniform2f(FLocMeshH,
+                (FDomX1 - FDomX0) / (2 * FHalf) * BoxX,
+                (FDomY1 - FDomY0) / (2 * FHalf) * BoxY)
+  else
+    glUniform2f(FLocMeshH, 0, 0);
   glUniform3f(FLocCont, FZmid, FZspan / 2, ContourStep);
   glEnable(GL_POLYGON_OFFSET_FILL);
   glPolygonOffset(1.0, 1.0);

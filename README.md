@@ -13,6 +13,11 @@ with nashira3d.Session("sin(3*x) * cos(3*y)", domain=(-2, 2, -2, 2)) as s:
 That is the whole program. There is no figure, no backend to choose, no event
 loop, and nothing to close.
 
+There is a page that runs the real thing in a browser -
+**[the live demo](https://pisarev.github.io/nashira3d-live/)**. The mesh you
+turn there is built by `core/nsh_surface.pas` from this repository, compiled to
+WebAssembly; only the drawing belongs to the browser.
+
 ## What makes it different
 
 Plotting libraries take an **array** of samples. This one takes the **function**.
@@ -23,43 +28,69 @@ instead of near it, and re-evaluate when you zoom instead of interpolating a
 mesh that was fixed long ago. None of that is possible once the function has
 been thrown away.
 
-Version 0.2 does not do any of it yet - it samples a uniform grid like everyone
-else. What it does already is keep the door open: the interface speaks of
-`quality`, not of a grid size, so the sampling can grow up without a single
-line changing on your side.
+Version 0.2 does not use curvature-adaptive sampling on its default path, and
+does not hunt for extrema. In a declared
+region it uses an even grid; across the view the sampling lines are placed by
+screen density, as described below. What it does already is keep the door open:
+the interface speaks of `quality`, not of a grid size, so the sampling can
+change without a single line changing on your side.
 
 The formula is parsed and **compiled to machine code** before evaluation, so a
-grid of a quarter of a million points is not a quarter of a million interpreted
-expressions.
+grid of sixty-five thousand points - what the top quality asks for - is not
+sixty-five thousand interpreted expressions.
 
 ## Install
 
-Take the wheel for your platform from the
-[releases page](https://github.com/pisarev/nashira3d/releases) and install it:
+Wheels for Windows and Linux are attached to every entry on the
+[releases page](https://github.com/pisarev/nashira3d/releases). Take the one
+for your platform and install it:
 
 ```
-pip install nashira3d-0.2.0-py3-none-win_amd64.whl
+pip install ./nashira3d-<version>-py3-none-win_amd64.whl
 ```
+
+The version is part of the file name, so copy it from the file you downloaded
+rather than from this line: a version written into a README is out of date by
+the next release.
 
 The wheel carries the compiled core. There is no compiler, no CMake and no
-system package to install.
+system package to install. The Linux wheel is tagged `linux_x86_64` rather than
+`manylinux`, and it needs a C library no older than the machine it was built
+on: Ubuntu 22.04 and newer.
 
 Nashira3D is not on PyPI yet. The name there is taken for good once it is
 used, and version 0.2 is still moving, so the registry can wait until the
-interface has settled. Building the wheel yourself takes one command and is
-described under [Building from source](#building-from-source).
+interface has settled. Once the native core has been built, packaging it into
+a wheel takes one command; the whole path is described under
+[Building from source](#building-from-source).
 
 ## What it needs
 
-- Windows or Linux, 64-bit
+- Windows or Linux on x86-64. Those are the two wheels there are
+  (`win_amd64` and `linux_x86_64`); ARM64 is not among them
 - a driver with **OpenGL 3.3 core**. On Linux the offscreen context is created
-  through EGL, so no display, no X server and no desktop session are required -
-  it works in a container and over SSH.
+  through EGL, so no display, no X server and no desktop session are required.
+  That is what makes headless use over SSH and inside a container possible -
+  provided a working EGL implementation is there to talk to, whether it is a
+  driver or a software renderer.
+
+On a machine with no graphics device of its own, EGL may refuse to start on the
+platform it picks by default. Where the surfaceless platform is supported,
+naming it may settle the matter:
+
+```
+export EGL_PLATFORM=surfaceless
+```
+
+It is worth trying whenever `render` answers `ERR_GPU` and the message names
+`eglInitialize`. That is the library reporting what EGL told it, not a failure
+of its own, and it says so rather than drawing something else.
 
 ## What version 0.2 does
 
 - one surface `z = f(x, y)` over a rectangular domain
-- a uniform grid, its density set by `quality` from 0 to 100
+- sampling set by `quality` from 0 to 100: a declared region gets an even grid,
+  a view-derived one redistributes the lines with perspective
 - one light, depth testing, and a choice of how the relief is drawn:
   contour lines by default, a height colour ramp, or both together
 - a box with ticks and numbered axes, labelled on the edges nearest the viewer
@@ -72,8 +103,11 @@ gaps:
 
 - no window and no mouse: a frame is returned, not shown
 - one surface per scene - no overlays, no point clouds, no volumes
-- no adaptive sampling: a peak between two grid nodes is still missed, and the
-  reported extremes are the grid's, not the function's
+- no curvature-adaptive sampling on the default path: a peak between two grid
+  nodes is still missed, and the reported extremes are the grid's, not the
+  function's. An experimental sampler by curvature is present in the build -
+  `core/nsh_adaptive.pas` - but it is switched on by an environment variable,
+  is no part of the contract, and is off unless you ask for it
 - no legends, no themes, no export beyond PNG
 - `numpy` is optional. Without it `render` returns a flat `memoryview` of
   `height*width*4` bytes instead of an array; `save_png` works either way
@@ -88,9 +122,15 @@ edges are real - they are where you said the picture ends - so nothing is hidden
 and nothing dissolves. Sampling is even across the region.
 
 **Across the view** the plot has no edges at all. The region is worked out from
-where the camera stands and where it looks, sampling follows the screen (dense
-underfoot, sparse towards the horizon), and the far edge dissolves into the
-background because it is the edge of the sampling, not of the function.
+where the camera stands and where it looks, and the sampling follows the screen:
+lines crowd underfoot and thin out towards the horizon, so the sampling is
+denser in world space near the camera, where a given world-space interval
+covers more screen pixels. The measurement is in `tests/cam_probe`, which is in this
+repository and prints it: with the camera 1.5 above the plane, tilted 0.30 rad
+and looking along y, 55 of the 64 lines over the segment from -20 to 5 land in
+the quarter nearest the camera. The far edge dissolves into the background because it is the
+edge of the sampling and not of the function - and the dissolve is carried all
+the way to the background exactly at that edge, so the edge itself never shows.
 
 ```python
 s.region_mode = "declared"   # default: a cube
@@ -99,8 +139,8 @@ s.region_mode = "view"       # an endless plane
 
 Everything else is shared. One evaluator, one renderer, one camera, one set of
 gestures - what changes is a single answer to a single question: *who decides
-the region?* From that answer follow the sampling, the fade, and whose edges
-those are. Nothing else in the pipeline knows which mode it is in.
+the region?* From that answer follow the extent, the fade, and whose edges those
+are. Nothing else in the pipeline knows which mode it is in.
 
 The endless plane needs a camera given as a point in problem coordinates
 (`set_camera_at`): its region is a frustum cut, and an orbit camera has no such
@@ -121,8 +161,9 @@ a *constant height* forces the distance to change, because that distance is
 raise it and the camera drifts into the surface. So an orbit holds the *radius*
 and lets the height follow - the exact opposite of what turning does.
 
-Hence two positions on the control, and <kbd>alt</kbd>-drag as a shortcut for
-the second. Neither gesture accumulates: both read the cursor's position, not
+Hence the viewer offers the two as separate gestures - a switch in the panel
+picks which one a drag performs, and <kbd>alt</kbd>-drag is a shortcut for the
+second. Neither gesture accumulates: both read the cursor's position, not
 the path it travelled, so returning the cursor returns the view.
 
 ## Contours, because a shade is not a number
@@ -154,7 +195,7 @@ number - the cell is **left out**. The surface gets a hole instead of a slope
 that does not exist. Pulling such a point to the edge of the box would draw a
 lie, and a plot that hides a singularity is worse than one that shows a gap.
 
-## Errors arrive where the mistake was made
+## Formula errors are reported immediately
 
 ```python
 >>> s.formula = "x +* "
@@ -164,6 +205,11 @@ nashira3d.Nashira3DError: ERR_FORMULA: the formula did not parse
 Not three calls later, at render time. A rejected assignment also leaves the
 previous formula in place: one typo does not break a session you have already
 set up.
+
+Not every refusal can arrive that early. A combination that only becomes
+impossible once both halves are set - an orbit camera together with the region
+taken from the view - is accepted by each call on its own and refused by
+`render`, with `ERR_STATE` naming what is missing.
 
 ## Building from source
 
@@ -184,7 +230,7 @@ core/build_linux.sh
 On Windows:
 
 ```
-powershell -ExecutionPolicy Bypass -File coreuild_windows.ps1
+powershell -ExecutionPolicy Bypass -File core/build_windows.ps1
 ```
 
 `-ExecutionPolicy Bypass` is what lets a downloaded script run under the default
@@ -225,9 +271,8 @@ the browser scale it down, which is where the smooth edges come from.
 
 The page computes nothing. It once carried a small JavaScript parser so it
 could draw without the bridge; that was removed after measuring what it was
-worth. It bought no speed - 0.227 microseconds per grid node against the
-library's 0.245 - and it cost correctness: a 31-item vocabulary probe found
-nine divergences. The page accepted `atan`, `asin`, `log`, `pow`, `mod` and `e`,
+worth. It cost correctness: on a vocabulary probe the two
+disagreed word for word. The page accepted `atan`, `asin`, `log`, `pow`, `mod` and `e`,
 which the library does not know under those names, and did not know `if()`,
 `x mod 2`, `lg` or `arctan2`, which the library does. A second parser that
 agrees on easy formulas and disagrees on the rest is worse than no picture at

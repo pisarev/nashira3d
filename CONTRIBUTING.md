@@ -21,8 +21,8 @@ to MIT.
 ## What a patch should carry
 
 Every change that fixes something should come with a check that fails without
-it. The repository has no test framework and does not want one: the probes in
-`tests/` are plain programs that print `ok` or `FAIL` and return a non-zero
+it. Tests here are standalone probe programs rather than a dependency on a
+test framework: those in `tests/` print `ok` or `FAIL` and return a non-zero
 code. Add to them.
 
 A check with only the green case is not a check. If it cannot go red, it is

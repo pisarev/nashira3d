@@ -1,0 +1,16 @@
+# Shell scripts have to reach a Linux machine with LF endings. bash will not
+# run a file with CRLF at all: it takes the carriage return as part of the
+# interpreter name and reports that the interpreter is missing, which reads as
+# a broken script rather than as a broken checkout.
+#
+# On Windows core.autocrlf is on by default, so without this line the working
+# copy gets CRLF even though the committed content is LF - and a release cut
+# from that working copy carries the damage out.
+*.sh text eol=lf
+
+# PowerShell is run by Windows, and CRLF there is the native form.
+*.ps1 text eol=crlf
+
+# Pictures and other binaries are never touched.
+*.png binary
+*.ico binary

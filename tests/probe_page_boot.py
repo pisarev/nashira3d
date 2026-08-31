@@ -119,6 +119,14 @@ with open(tmp, "w", encoding="utf-8") as f:
 try:
     r = subprocess.run(["node", tmp], capture_output=True, text=True,
                        encoding="utf-8", timeout=90)
+except FileNotFoundError:
+    # NOT CHECKED is a third outcome: neither a failure nor a pass. To leave
+    # with a zero is to pass an empty run off as a completed one: the battery
+    # counts zero checks and zero failures, and that reads as success. To
+    # leave with a one is to cry breakage where there is merely no tool
+    # available. Code 2 tells the truth.
+    print("   NOT CHECKED: the page starting up - no node")
+    sys.exit(2)
 finally:
     os.remove(tmp)
 
@@ -154,8 +162,8 @@ if line:
     mode = [BUTTON.get(b) for b in lit if b.startswith("d")]
     gesture = [BUTTON.get(b) for b in lit if b.startswith("m")]
     check("the lit mode = the default in the code", mode, [got.get("drawIn")])
-    want = got.get("mouseCube") if got.get("drawIn") == "cube" else got.get("mousePlane")
-    check("the lit gesture = the default of that mode", gesture, [want])
+    expected = got.get("mouseCube") if got.get("drawIn") == "cube" else got.get("mousePlane")
+    check("the lit gesture = the default of that mode", gesture, [expected])
 
     # THE REASON. Rebuilding the bottom panel replaced the markup up to the
     # FIRST </div>, and that was the closing tag of the first group, not of the
