@@ -46,8 +46,14 @@ Wheels for Windows and Linux are attached to every entry on the
 for your platform and install it:
 
 ```
-pip install ./nashira3d-<version>-py3-none-win_amd64.whl
+python -m pip install ./nashira3d-<version>-py3-none-win_amd64.whl
 ```
+
+`python -m pip` rather than `pip`, and not out of pedantry: on a machine with
+conda or pyenv the two are often different installations. A plain `pip install`
+then reports success while `import nashira3d` answers `ModuleNotFoundError`,
+because the package went to an interpreter other than the one you are running.
+Written this way, the interpreter that installs is the interpreter that imports.
 
 The version is part of the file name, so copy it from the file you downloaded
 rather than from this line: a version written into a README is out of date by
@@ -267,6 +273,20 @@ wheel.
 
     python web/bridge.py
     # then open http://localhost:8770/
+
+If the core came from a wheel rather than from a build of your own, the bridge
+will not find it and will say so, naming both places it looked. It searches
+next to its own copy of the package - the one in this source tree - while the
+wheel put the library in `site-packages`. Put a copy where it looks:
+
+    # Windows
+    copy "%CONDA_PREFIX%\Lib\site-packages\nashira3d\nashira3d.dll" python\nashira3d\
+
+    # Linux
+    cp "$(python -c 'import nashira3d,os;print(os.path.dirname(nashira3d.__file__))')/libnashira3d.so" python/nashira3d/
+
+Setting `NASHIRA3D_LIB` to that same file works too, and takes precedence over
+every other place the binding looks.
 
 The page sends the formula and the camera to the bridge and displays the frame
 the library rendered - the same bytes `render` hands to any other host. The
