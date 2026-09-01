@@ -72,6 +72,8 @@ a wheel takes one command; the whole path is described under
 
 ## What it needs
 
+- Python 3.9 or newer. The wheel says so itself and pip will refuse an older
+  one by name rather than install something that cannot work
 - Windows or Linux on x86-64. Those are the two wheels there are
   (`win_amd64` and `linux_x86_64`); ARM64 is not among them
 - a driver with **OpenGL 3.3 core**. On Linux the offscreen context is created
@@ -280,10 +282,15 @@ next to its own copy of the package - the one in this source tree - while the
 wheel put the library in `site-packages`. Put a copy where it looks:
 
     # Windows
-    copy "%CONDA_PREFIX%\Lib\site-packages\nashira3d\nashira3d.dll" python\nashira3d\
+    python -c "import nashira3d,os,shutil;shutil.copy(os.path.join(os.path.dirname(nashira3d.__file__),'nashira3d.dll'),'python/nashira3d/')"
 
     # Linux
-    cp "$(python -c 'import nashira3d,os;print(os.path.dirname(nashira3d.__file__))')/libnashira3d.so" python/nashira3d/
+    python -c "import nashira3d,os,shutil;shutil.copy(os.path.join(os.path.dirname(nashira3d.__file__),'libnashira3d.so'),'python/nashira3d/')"
+
+Written that way rather than with a path of your own because the place a wheel
+puts the library depends on how python was installed - a plain install, a venv,
+conda, pyenv - and the interpreter you are running already knows it. Asking it
+is shorter than guessing, and it cannot go stale.
 
 Setting `NASHIRA3D_LIB` to that same file works too, and takes precedence over
 every other place the binding looks.
