@@ -10,6 +10,10 @@ with nashira3d.Session("sin(3*x) * cos(3*y)", domain=(-2, 2, -2, 2)) as s:
     s.save_png("wave.png", 800, 600)
 ```
 
+![Contour-lined surface of sin(3x) cos(3y) over the square from -2 to 2](web/hero.png)
+
+*What the program above draws, at 1600 x 700.*
+
 That is the whole program. There is no figure, no backend to choose, no event
 loop, and nothing to close.
 
