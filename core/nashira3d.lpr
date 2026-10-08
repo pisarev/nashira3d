@@ -23,7 +23,7 @@ const
   NSH_ERR_MEMORY      = 4;
   NSH_ERR_STATE       = 5;
   NSH_ERR_UNSUPPORTED = 6;
-  NSH_VERSION = '0.2.0';
+  NSH_VERSION = '0.2.1';
 
 type
   PSession = ^TSession;

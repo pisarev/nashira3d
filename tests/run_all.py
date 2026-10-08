@@ -81,8 +81,9 @@ PAS_PROBES = [
 # number that arrived from the other.
 C_PROBES = [("the seam through outside eyes, in C", "c_consumer" + EXE)]
 
-LIBS = [os.path.join(ROOT, "build", "win64", "nashira3d.dll"),
-        os.path.join(ROOT, "build", "linux64", "libnashira3d.so")]
+LIBS = ([os.path.join(ROOT, "build", "win64", "nashira3d.dll")]
+        if sys.platform == "win32" else
+        [os.path.join(ROOT, "build", "linux64", "libnashira3d.so")])
 
 total = len(_orphans)
 failed = len(_orphans)

@@ -18,7 +18,7 @@ OUT="$ROOT/build/probe"
 if [ ! -d "$TP/src" ]; then
     echo "the parser is missing: $TP" >&2
     echo "clone it at the tag:" >&2
-    echo "  git clone --branch v1.3.4 --depth 1 https://github.com/pisarev/pascal-mathparser.git $TP" >&2
+    echo "  git clone --branch v1.3.9 --depth 1 https://github.com/pisarev/pascal-mathparser.git $TP" >&2
     exit 1
 fi
 

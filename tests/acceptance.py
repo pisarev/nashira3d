@@ -880,16 +880,11 @@ def check_5_15():
 # so deliberately: passing a record off as a check would be a lie about what
 # happens here.
 def check_5_17_19():
-    verdict("5.17 the frame fills the window [measured]",
-            "1440x900 out of 1440x900, margins 0", True, "100% and 0 px")
-    verdict("5.17 panels over the frame [measured]", "5 of them", True, "5")
-    verdict("5.18 button height [measured]", "8 buttons, all 30 px", True,
-            "difference 0")
-    verdict("5.18 field height [measured]", "10 fields, all 30 px", True,
-            "difference 0")
-    verdict("5.19 active samples [measured]",
-            "1 after a choice, 1 after 100 movements, 1 after a change", True,
-            "exactly 1")
+    for name in ("5.17 the frame fills the window",
+                 "5.17 panels over the frame", "5.18 button height",
+                 "5.18 field height", "5.19 active samples"):
+        skipped(name, "browser measurement required",
+                "layout is not measured by this library test")
 
 
 def main():

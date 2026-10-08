@@ -17,7 +17,7 @@ $Tp   = Join-Path $Root 'thirdparty\pascal-mathparser'
 $Out  = Join-Path $Root 'build\probe'
 
 if (-not (Test-Path (Join-Path $Tp 'src'))) {
-    throw "the parser is missing: $Tp. Clone it at the tag v1.3.4"
+    throw "the parser is missing: $Tp. Clone it at the tag v1.3.9"
 }
 
 $Fpc = if ($env:FPC_EXE) { $env:FPC_EXE } else { 'fpc.exe' }

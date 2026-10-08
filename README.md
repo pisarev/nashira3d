@@ -240,7 +240,7 @@ You need Free Pascal 3.2.2 and the parser, cloned at the tag the release was
 built against:
 
 ```
-git clone --branch v1.3.4 --depth 1     https://github.com/pisarev/pascal-mathparser.git thirdparty/pascal-mathparser
+git clone --branch v1.3.9 --depth 1     https://github.com/pisarev/pascal-mathparser.git thirdparty/pascal-mathparser
 ```
 
 Then, on Linux:
